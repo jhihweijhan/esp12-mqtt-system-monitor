@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
-#include <LittleFS.h>
 #include "wifi_manager.h"
 #include "html_page.h"
 #include "html_monitor.h"
@@ -22,7 +21,6 @@ public:
     void loop() {
         if (_pendingRestart && millis() >= _restartAt) {
             Serial.println("Restarting...");
-            LittleFS.end();  // 確保檔案系統已 flush
             delay(100);
             ESP.restart();
         }
