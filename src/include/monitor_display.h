@@ -273,7 +273,7 @@ private:
         _tft.drawStringCentered(90, "OFFLINE", COLOR_WHITE, COLOR_RED, 2);
 
         DeviceConfig* cfg = _config.getOrCreateDevice(hostname);
-        const char* alias = cfg ? cfg->alias : hostname;
+        const char* alias = (cfg && strlen(cfg->alias) > 0) ? cfg->alias : hostname;
         _tft.drawStringCentered(120, alias, COLOR_WHITE, COLOR_RED, 2);
 
         _forceRedraw = true;
