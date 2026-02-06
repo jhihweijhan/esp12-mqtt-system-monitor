@@ -112,7 +112,8 @@ private:
     void showDevice(DeviceMetrics* dev) {
         // 取得設備別名
         DeviceConfig* cfg = _config.getOrCreateDevice(dev->hostname);
-        const char* alias = cfg ? cfg->alias : dev->hostname;
+        // 使用別名，若為空則使用 hostname
+        const char* alias = (cfg && strlen(cfg->alias) > 0) ? cfg->alias : dev->hostname;
 
         // 檢查是否需要完整重繪（設備切換或強制重繪）
         bool needHeaderRedraw = _forceRedraw || strcmp(_lastHostname, dev->hostname) != 0;
@@ -148,14 +149,14 @@ private:
         snprintf(buf, sizeof(buf), "%3d%%", cpuPct);
         uint16_t cpuColor = (cpuPct >= th.cpuCrit) ? COLOR_RED :
                             (cpuPct >= th.cpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
-        _tft.fillRect(64, y, 80, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.fillRect(64, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
         _tft.drawString(64, y, buf, cpuColor, COLOR_BLACK, 2);
 
         int cpuTemp = (int)dev->cpuTemp;
         snprintf(buf, sizeof(buf), "%2dC", cpuTemp);
         uint16_t tempColor = (cpuTemp >= th.tempCrit) ? COLOR_RED :
                              (cpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
-        _tft.fillRect(152, y, 80, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.fillRect(152, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
         _tft.drawString(152, y, buf, tempColor, COLOR_BLACK, 2);
 
         y += 36;
@@ -167,12 +168,12 @@ private:
         snprintf(buf, sizeof(buf), "%3d%%", ramPct);
         uint16_t ramColor = (ramPct >= th.ramCrit) ? COLOR_RED :
                             (ramPct >= th.ramWarn) ? COLOR_YELLOW : COLOR_GREEN;
-        _tft.fillRect(64, y, 70, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.fillRect(64, y, 70, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
         _tft.drawString(64, y, buf, ramColor, COLOR_BLACK, 2);
 
         // RAM 用量
         snprintf(buf, sizeof(buf), "%.1f/%.0fG", dev->ramUsedGB, dev->ramTotalGB);
-        _tft.fillRect(136, y, 100, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.fillRect(136, y, 100, 16, COLOR_BLACK);  // 清除數值區域 (size 1 = 16px 高)
         _tft.drawString(136, y, buf, COLOR_GRAY, COLOR_BLACK, 1);
 
         y += 36;
@@ -187,14 +188,14 @@ private:
             snprintf(buf, sizeof(buf), "%3d%%", gpuPct);
             uint16_t gpuColor = (gpuPct >= th.gpuCrit) ? COLOR_RED :
                                 (gpuPct >= th.gpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
-            _tft.fillRect(64, y, 80, 16, COLOR_BLACK);  // 清除數值區域
+            _tft.fillRect(64, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
             _tft.drawString(64, y, buf, gpuColor, COLOR_BLACK, 2);
 
             int gpuTemp = (int)dev->gpuTemp;
             snprintf(buf, sizeof(buf), "%2dC", gpuTemp);
             uint16_t gTempColor = (gpuTemp >= th.tempCrit) ? COLOR_RED :
                                   (gpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
-            _tft.fillRect(152, y, 80, 16, COLOR_BLACK);  // 清除數值區域
+            _tft.fillRect(152, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
             _tft.drawString(152, y, buf, gTempColor, COLOR_BLACK, 2);
 
             y += 24;
