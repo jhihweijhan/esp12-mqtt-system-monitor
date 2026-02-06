@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
+#include <Ticker.h>
 #include "wifi_manager.h"
 #include "html_page.h"
 #include "html_monitor.h"
@@ -86,9 +87,10 @@ public:
                 response = "{\"success\":true,\"ip\":\"" + ip + "\"}";
                 request->send(200, "application/json", response);
 
-                // 延遲後重啟
-                delay(3000);
-                ESP.restart();
+                // 使用 Ticker 非阻塞延遲重啟
+                _restartTicker.once(1.5, []() {
+                    ESP.restart();
+                });
             } else {
                 response = "{\"success\":false,\"message\":\"Connection failed\"}";
                 request->send(200, "application/json", response);
@@ -200,10 +202,13 @@ public:
                 // 儲存
                 if (_monitorConfig->save()) {
                     request->send(200, "application/json", "{\"success\":true}");
+                    Serial.println("Config saved, scheduling restart...");
 
-                    // 延遲後重啟以套用新設定
-                    delay(3000);
-                    ESP.restart();
+                    // 使用 Ticker 非阻塞延遲重啟，讓 response 先送出
+                    _restartTicker.once(1.5, []() {
+                        Serial.println("Restarting...");
+                        ESP.restart();
+                    });
                 } else {
                     request->send(500, "application/json", "{\"success\":false,\"message\":\"save failed\"}");
                 }
@@ -244,6 +249,7 @@ private:
     WiFiManager& _wifiMgr;
     MonitorConfigManager* _monitorConfig = nullptr;
     MQTTClient* _mqtt = nullptr;
+    Ticker _restartTicker;
 };
 
 #endif

@@ -182,6 +182,11 @@ public:
         config.autoCarousel = doc["autoCarousel"] | true;
 
         Serial.println("Monitor config loaded");
+        Serial.printf("  deviceCount: %d\n", config.deviceCount);
+        for (uint8_t i = 0; i < config.deviceCount; i++) {
+            Serial.printf("  Device %d: hostname=%s, alias=%s, enabled=%d\n",
+                i, config.devices[i].hostname, config.devices[i].alias, config.devices[i].enabled);
+        }
         return true;
     }
 
