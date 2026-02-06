@@ -34,9 +34,18 @@ public:
             request->send_P(200, "text/html", HTML_PAGE);
         });
 
-        // 監控 Dashboard
+        // 監控 Dashboard (使用 chunked response)
         _server.on("/monitor", HTTP_GET, [](AsyncWebServerRequest *request) {
-            request->send_P(200, "text/html", HTML_MONITOR);
+            AsyncWebServerResponse *response = request->beginChunkedResponse("text/html",
+                [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+                    size_t len = strlen_P(HTML_MONITOR);
+                    if (index >= len) return 0;
+                    size_t remaining = len - index;
+                    size_t toSend = (remaining > maxLen) ? maxLen : remaining;
+                    memcpy_P(buffer, HTML_MONITOR + index, toSend);
+                    return toSend;
+                });
+            request->send(response);
         });
 
         // 掃描 WiFi
