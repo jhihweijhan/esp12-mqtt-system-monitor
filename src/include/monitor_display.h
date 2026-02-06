@@ -149,15 +149,13 @@ private:
         snprintf(buf, sizeof(buf), "%3d%%", cpuPct);
         uint16_t cpuColor = (cpuPct >= th.cpuCrit) ? COLOR_RED :
                             (cpuPct >= th.cpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
-        _tft.fillRect(64, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
-        _tft.drawString(64, y, buf, cpuColor, COLOR_BLACK, 2);
+        _tft.drawStringPadded(64, y, buf, cpuColor, COLOR_BLACK, 2, 80);
 
         int cpuTemp = (int)dev->cpuTemp;
         snprintf(buf, sizeof(buf), "%2dC", cpuTemp);
         uint16_t tempColor = (cpuTemp >= th.tempCrit) ? COLOR_RED :
                              (cpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
-        _tft.fillRect(152, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
-        _tft.drawString(152, y, buf, tempColor, COLOR_BLACK, 2);
+        _tft.drawStringPadded(152, y, buf, tempColor, COLOR_BLACK, 2, 80);
 
         y += 36;
 
@@ -168,16 +166,14 @@ private:
         snprintf(buf, sizeof(buf), "%3d%%", ramPct);
         uint16_t ramColor = (ramPct >= th.ramCrit) ? COLOR_RED :
                             (ramPct >= th.ramWarn) ? COLOR_YELLOW : COLOR_GREEN;
-        _tft.fillRect(64, y, 70, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
-        _tft.drawString(64, y, buf, ramColor, COLOR_BLACK, 2);
+        _tft.drawStringPadded(64, y, buf, ramColor, COLOR_BLACK, 2, 70);
 
         // RAM 用量
         snprintf(buf, sizeof(buf), "%.1f/%.0fG", dev->ramUsedGB, dev->ramTotalGB);
-        _tft.fillRect(136, y, 100, 16, COLOR_BLACK);  // 清除數值區域 (size 1 = 16px 高)
-        _tft.drawString(136, y, buf, COLOR_GRAY, COLOR_BLACK, 1);
+        _tft.drawStringPadded(136, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 100);
 
         y += 36;
-        yield();  // 讓 TCP stack 處理封包
+        yield();
 
         // GPU（如果有）
         if (dev->gpuPercent > 0 || dev->gpuTemp > 0) {
@@ -187,48 +183,41 @@ private:
             snprintf(buf, sizeof(buf), "%3d%%", gpuPct);
             uint16_t gpuColor = (gpuPct >= th.gpuCrit) ? COLOR_RED :
                                 (gpuPct >= th.gpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
-            _tft.fillRect(64, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
-            _tft.drawString(64, y, buf, gpuColor, COLOR_BLACK, 2);
+            _tft.drawStringPadded(64, y, buf, gpuColor, COLOR_BLACK, 2, 80);
 
             int gpuTemp = (int)dev->gpuTemp;
             snprintf(buf, sizeof(buf), "%2dC", gpuTemp);
             uint16_t gTempColor = (gpuTemp >= th.tempCrit) ? COLOR_RED :
                                   (gpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
-            _tft.fillRect(152, y, 80, 32, COLOR_BLACK);  // 清除數值區域 (size 2 = 32px 高)
-            _tft.drawString(152, y, buf, gTempColor, COLOR_BLACK, 2);
+            _tft.drawStringPadded(152, y, buf, gTempColor, COLOR_BLACK, 2, 80);
 
             y += 24;
 
             // GPU 記憶體
             snprintf(buf, sizeof(buf), "VRAM: %d%%", (int)dev->gpuMemPercent);
-            _tft.fillRect(8, y, 120, 16, COLOR_BLACK);  // 清除數值區域
-            _tft.drawString(8, y, buf, COLOR_GRAY, COLOR_BLACK, 1);
+            _tft.drawStringPadded(8, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 120);
             y += 20;
         }
 
-        yield();  // 讓 TCP stack 處理封包
+        yield();
 
         // 網路
         _tft.drawString(8, y, "NET", COLOR_GRAY, COLOR_BLACK, 1);
-        _tft.fillRect(40, y, 70, 16, COLOR_BLACK);  // 清除數值區域
         snprintf(buf, sizeof(buf), "v%.1fM", dev->netRxMbps);
-        _tft.drawString(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
-        _tft.fillRect(112, y, 70, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.drawStringPadded(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1, 70);
         snprintf(buf, sizeof(buf), "^%.1fM", dev->netTxMbps);
-        _tft.drawString(112, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
+        _tft.drawStringPadded(112, y, buf, COLOR_CYAN, COLOR_BLACK, 1, 70);
 
         y += 20;
 
         // 磁碟
         _tft.drawString(8, y, "DISK", COLOR_GRAY, COLOR_BLACK, 1);
-        _tft.fillRect(48, y, 78, 16, COLOR_BLACK);  // 清除數值區域
         snprintf(buf, sizeof(buf), "R:%.1fM", dev->diskReadMBs);
-        _tft.drawString(48, y, buf, COLOR_WHITE, COLOR_BLACK, 1);
-        _tft.fillRect(128, y, 78, 16, COLOR_BLACK);  // 清除數值區域
+        _tft.drawStringPadded(48, y, buf, COLOR_WHITE, COLOR_BLACK, 1, 78);
         snprintf(buf, sizeof(buf), "W:%.1fM", dev->diskWriteMBs);
-        _tft.drawString(128, y, buf, COLOR_WHITE, COLOR_BLACK, 1);
+        _tft.drawStringPadded(128, y, buf, COLOR_WHITE, COLOR_BLACK, 1, 78);
 
-        yield();  // 讓 TCP stack 處理封包
+        yield();
 
         // 底部狀態列
         // IP 位址
@@ -246,8 +235,7 @@ private:
 
         unsigned long age = (millis() - dev->lastUpdate) / 1000;
         snprintf(buf, sizeof(buf), "%lus ago", age);
-        _tft.fillRect(168, y, 70, 16, COLOR_BLACK);  // 清除數值區域
-        _tft.drawString(168, y, buf, COLOR_GRAY, COLOR_BLACK, 1);
+        _tft.drawStringPadded(168, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 70);
     }
 
     void showNoDevice() {

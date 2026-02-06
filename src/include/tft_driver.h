@@ -141,6 +141,15 @@ public:
         }
     }
 
+    // 繪製固定寬度字串：先畫文字（含背景），再清除尾部剩餘像素，無閃爍
+    void drawStringPadded(int16_t x, int16_t y, const char* str, uint16_t color, uint16_t bg, uint8_t size, int16_t totalWidth) {
+        int16_t strWidth = strlen(str) * FONT_WIDTH * size;
+        drawString(x, y, str, color, bg, size);
+        if (strWidth < totalWidth) {
+            fillRect(x + strWidth, y, totalWidth - strWidth, FONT_HEIGHT * size, bg);
+        }
+    }
+
     void drawStringCentered(int16_t y, const char* str, uint16_t color, uint16_t bg, uint8_t size = 1) {
         int16_t len = strlen(str);
         int16_t x = (TFT_WIDTH - len * FONT_WIDTH * size) / 2;
