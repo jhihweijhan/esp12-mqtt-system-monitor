@@ -94,11 +94,13 @@ public:
 
         uint8_t hi = color >> 8;
         uint8_t lo = color & 0xFF;
-        for (uint32_t i = 0; i < (uint32_t)w * h; i++) {
+        uint32_t total = (uint32_t)w * h;
+        for (uint32_t i = 0; i < total; i++) {
             SPI.transfer(hi);
             SPI.transfer(lo);
         }
         digitalWrite(TFT_CS, HIGH);
+        if (total > 512) yield();  // 大面積填充後讓出 CPU
     }
 
     void drawPixel(int16_t x, int16_t y, uint16_t color) {
@@ -135,6 +137,7 @@ public:
             drawChar(x, y, *str, color, bg, size);
             x += FONT_WIDTH * size;
             str++;
+            yield();  // 讓 WiFi/TCP stack 處理封包
         }
     }
 

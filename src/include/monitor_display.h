@@ -38,8 +38,8 @@ public:
             }
         }
 
-        // 每 500ms 更新顯示
-        if (now - _lastRefresh > 500) {
+        // 每 1000ms 更新顯示
+        if (now - _lastRefresh > 1000) {
             _lastRefresh = now;
             refresh();
         }
@@ -177,8 +177,7 @@ private:
         _tft.drawString(136, y, buf, COLOR_GRAY, COLOR_BLACK, 1);
 
         y += 36;
-
-        yield();  // 讓 WDT 不會超時
+        yield();  // 讓 TCP stack 處理封包
 
         // GPU（如果有）
         if (dev->gpuPercent > 0 || dev->gpuTemp > 0) {
@@ -207,6 +206,8 @@ private:
             y += 20;
         }
 
+        yield();  // 讓 TCP stack 處理封包
+
         // 網路
         _tft.drawString(8, y, "NET", COLOR_GRAY, COLOR_BLACK, 1);
         _tft.fillRect(40, y, 70, 16, COLOR_BLACK);  // 清除數值區域
@@ -226,6 +227,8 @@ private:
         _tft.fillRect(128, y, 78, 16, COLOR_BLACK);  // 清除數值區域
         snprintf(buf, sizeof(buf), "W:%.1fM", dev->diskWriteMBs);
         _tft.drawString(128, y, buf, COLOR_WHITE, COLOR_BLACK, 1);
+
+        yield();  // 讓 TCP stack 處理封包
 
         // 底部狀態列
         // IP 位址
