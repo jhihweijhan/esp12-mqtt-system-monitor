@@ -255,7 +255,7 @@ public:
             strlcpy(d.alias, hostname, sizeof(d.alias));
 
             d.displayTime = config.defaultDisplayTime;
-            d.enabled = true;
+            d.enabled = false;
             config.deviceCount++;
             _needsSave = true;  // 標記需要儲存，稍後在主迴圈中儲存
 
