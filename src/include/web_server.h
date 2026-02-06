@@ -98,7 +98,7 @@ public:
                 request->send(200, "application/json", response);
 
                 _pendingRestart = true;
-                _restartAt = millis() + 1000;
+                _restartAt = millis() + 2000;
             } else {
                 response = "{\"success\":false,\"message\":\"Connection failed\"}";
                 request->send(200, "application/json", response);
@@ -212,7 +212,7 @@ public:
                     request->send(200, "application/json", "{\"success\":true}");
                     Serial.println("Config saved, scheduling restart...");
                     _pendingRestart = true;
-                    _restartAt = millis() + 1000;
+                    _restartAt = millis() + 2000;
                 } else {
                     request->send(500, "application/json", "{\"success\":false,\"message\":\"save failed\"}");
                 }
