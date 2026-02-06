@@ -144,6 +144,9 @@ void setup() {
 }
 
 void loop() {
+    // Web Server 延遲重啟
+    if (webServer) webServer->loop();
+
     if (currentMode == MODE_MONITOR) {
         // 監控模式
         mqttClient.loop();

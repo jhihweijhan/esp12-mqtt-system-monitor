@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
-#include <Ticker.h>
+#include <LittleFS.h>
 #include "wifi_manager.h"
 #include "html_page.h"
 #include "html_monitor.h"
@@ -17,6 +17,16 @@ public:
 
     void setMonitorConfig(MonitorConfigManager* config) { _monitorConfig = config; }
     void setMQTTClient(MQTTClient* mqtt) { _mqtt = mqtt; }
+
+    // 在 main loop 中呼叫，處理延遲重啟
+    void loop() {
+        if (_pendingRestart && millis() >= _restartAt) {
+            Serial.println("Restarting...");
+            LittleFS.end();  // 確保檔案系統已 flush
+            delay(100);
+            ESP.restart();
+        }
+    }
 
     void begin() {
         // 首頁 - 根據模式顯示不同頁面
@@ -87,10 +97,8 @@ public:
                 response = "{\"success\":true,\"ip\":\"" + ip + "\"}";
                 request->send(200, "application/json", response);
 
-                // 使用 Ticker 非阻塞延遲重啟
-                _restartTicker.once(1.5, []() {
-                    ESP.restart();
-                });
+                _pendingRestart = true;
+                _restartAt = millis() + 1000;
             } else {
                 response = "{\"success\":false,\"message\":\"Connection failed\"}";
                 request->send(200, "application/json", response);
@@ -203,12 +211,8 @@ public:
                 if (_monitorConfig->save()) {
                     request->send(200, "application/json", "{\"success\":true}");
                     Serial.println("Config saved, scheduling restart...");
-
-                    // 使用 Ticker 非阻塞延遲重啟，讓 response 先送出
-                    _restartTicker.once(1.5, []() {
-                        Serial.println("Restarting...");
-                        ESP.restart();
-                    });
+                    _pendingRestart = true;
+                    _restartAt = millis() + 1000;
                 } else {
                     request->send(500, "application/json", "{\"success\":false,\"message\":\"save failed\"}");
                 }
@@ -249,7 +253,8 @@ private:
     WiFiManager& _wifiMgr;
     MonitorConfigManager* _monitorConfig = nullptr;
     MQTTClient* _mqtt = nullptr;
-    Ticker _restartTicker;
+    volatile bool _pendingRestart = false;
+    unsigned long _restartAt = 0;
 };
 
 #endif
