@@ -45,18 +45,9 @@ public:
             request->send_P(200, "text/html", HTML_PAGE);
         });
 
-        // 監控 Dashboard (使用 chunked response with pre-calculated length)
+        // 監控 Dashboard
         _server.on("/monitor", HTTP_GET, [](AsyncWebServerRequest *request) {
-            AsyncWebServerResponse *response = request->beginChunkedResponse("text/html",
-                [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-                    // Use pre-calculated length (HTML_MONITOR_LEN) to avoid slow strlen_P()
-                    if (index >= HTML_MONITOR_LEN) return 0;
-                    size_t remaining = HTML_MONITOR_LEN - index;
-                    size_t toSend = (remaining > maxLen) ? maxLen : remaining;
-                    memcpy_P(buffer, HTML_MONITOR + index, toSend);
-                    return toSend;
-                });
-            request->send(response);
+            request->send_P(200, "text/html", (const uint8_t*)HTML_MONITOR, HTML_MONITOR_LEN);
         });
 
         // 掃描 WiFi
