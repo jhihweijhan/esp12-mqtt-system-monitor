@@ -26,7 +26,9 @@ struct DeviceMetrics {
 
     // GPU
     float gpuPercent;
-    float gpuTemp;
+    float gpuTemp;            // 主溫度 (edge/core)
+    float gpuHotspotTemp;     // 熱點/junction 溫度
+    float gpuMemTemp;         // VRAM 溫度
     float gpuMemPercent;
 
     // 網路 (Mbps)
@@ -196,14 +198,44 @@ public:
         dev->ramUsedGB = ramUsedBytes / (1024.0f * 1024.0f * 1024.0f);
         dev->ramTotalGB = ramTotalBytes / (1024.0f * 1024.0f * 1024.0f);
 
-        // GPU (agent_sender_async.py: gpu.usage_percent, gpu.temperature_celsius, gpu.memory_percent)
+        // GPU
         if (doc["gpu"].is<JsonObject>()) {
             dev->gpuPercent = doc["gpu"]["usage_percent"] | 0.0f;
             dev->gpuTemp = doc["gpu"]["temperature_celsius"] | 0.0f;
+            dev->gpuHotspotTemp = 0.0f;
+            dev->gpuMemTemp = 0.0f;
+
+            // memory_percent: 直接讀取或從 used/total 計算
             dev->gpuMemPercent = doc["gpu"]["memory_percent"] | 0.0f;
+            if (dev->gpuMemPercent == 0.0f) {
+                float memUsed = doc["gpu"]["memory_used_mb"] | 0.0f;
+                float memTotal = doc["gpu"]["memory_total_mb"] | 0.0f;
+                if (memTotal > 0) {
+                    dev->gpuMemPercent = (memUsed / memTotal) * 100.0f;
+                }
+            }
+
+            // 解析 temperatures 陣列 (GPU/EDG, JCT/HSP, MEM/VRM)
+            if (doc["gpu"]["temperatures"].is<JsonArray>()) {
+                JsonArray temps = doc["gpu"]["temperatures"].as<JsonArray>();
+                for (JsonVariant t : temps) {
+                    const char* label = t["label"] | "";
+                    float current = t["current"] | 0.0f;
+                    if (strcmp(label, "GPU") == 0 || strcmp(label, "EDG") == 0 ||
+                        strcmp(label, "COR") == 0) {
+                        dev->gpuTemp = current;
+                    } else if (strcmp(label, "JCT") == 0 || strcmp(label, "HSP") == 0) {
+                        dev->gpuHotspotTemp = current;
+                    } else if (strcmp(label, "MEM") == 0 || strcmp(label, "VRM") == 0) {
+                        dev->gpuMemTemp = current;
+                    }
+                }
+            }
         } else {
             dev->gpuPercent = 0.0f;
             dev->gpuTemp = 0.0f;
+            dev->gpuHotspotTemp = 0.0f;
+            dev->gpuMemTemp = 0.0f;
             dev->gpuMemPercent = 0.0f;
         }
 

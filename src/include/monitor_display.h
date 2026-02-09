@@ -68,33 +68,29 @@ public:
     }
 
     void refresh() {
-        // 檢查是否有離線設備需要警示
-        bool hasOffline = false;
+        // 先嘗試取得當前在線設備
+        DeviceMetrics* dev = _mqtt.getOnlineDevice(_currentDevice);
+        if (dev) {
+            // 有在線設備 — 正常顯示，不中斷
+            showDevice(dev);
+            return;
+        }
+
+        // 沒有在線設備可顯示 — 檢查是否有離線設備需警示
         const char* offlineDevice = nullptr;
         for (uint8_t i = 0; i < _mqtt.deviceCount; i++) {
             DeviceConfig* cfg = _config.getOrCreateDevice(_mqtt.devices[i].hostname);
             if (cfg && cfg->enabled && !_mqtt.devices[i].online) {
-                hasOffline = true;
                 offlineDevice = _mqtt.devices[i].hostname;
                 break;
             }
         }
 
-        // 顯示離線警示（閃爍）
-        if (hasOffline && ((millis() / 1000) % 4 < 2)) {
+        if (offlineDevice && ((millis() / 1000) % 4 < 2)) {
             showOfflineAlert(offlineDevice);
-            return;
-        }
-
-        // 取得當前設備
-        DeviceMetrics* dev = _mqtt.getOnlineDevice(_currentDevice);
-        if (!dev) {
+        } else {
             showNoDevice();
-            return;
         }
-
-        // 顯示設備資訊
-        showDevice(dev);
     }
 
 private:
@@ -109,6 +105,10 @@ private:
     bool _forceRedraw = true;
     char _lastHostname[32] = "";
 
+    // 快取上次繪製的值，避免不必要的重繪（size 1 逐像素繪製很慢）
+    int _lastGpuHspTemp = -999;
+    int _lastGpuMemTemp = -999;
+
     void showDevice(DeviceMetrics* dev) {
         // 取得設備別名
         DeviceConfig* cfg = _config.getOrCreateDevice(dev->hostname);
@@ -121,6 +121,9 @@ private:
             _tft.fillScreen(COLOR_BLACK);
             strcpy(_lastHostname, dev->hostname);
             _forceRedraw = false;
+            // 重置快取值，強制全部重繪
+            _lastGpuHspTemp = -999;
+            _lastGpuMemTemp = -999;
 
             // 標題列（只在需要時繪製）
             _ui.drawDeviceHeader(alias, true);
@@ -191,12 +194,41 @@ private:
                                   (gpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
             _tft.drawStringPadded(152, y, buf, gTempColor, COLOR_BLACK, 2, 80);
 
-            y += 24;
+            y += 32;  // size 2 字高 32px，不能用 24 否則會蓋到下一行
+
+            // 熱點 & VRAM 溫度（快取值，僅在變化時重繪）
+            if (dev->gpuHotspotTemp > 0 || dev->gpuMemTemp > 0) {
+                int hspTemp = (int)dev->gpuHotspotTemp;
+                if (hspTemp != _lastGpuHspTemp) {
+                    _lastGpuHspTemp = hspTemp;
+                    if (hspTemp > 0) {
+                        snprintf(buf, sizeof(buf), "HSP:%dC", hspTemp);
+                        uint16_t hspColor = (hspTemp >= th.tempCrit) ? COLOR_RED :
+                                            (hspTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
+                        _tft.drawStringPadded(8, y, buf, hspColor, COLOR_BLACK, 1, 72);
+                    } else {
+                        _tft.fillRect(8, y, 72, FONT_HEIGHT, COLOR_BLACK);
+                    }
+                }
+                int mTemp = (int)dev->gpuMemTemp;
+                if (mTemp != _lastGpuMemTemp) {
+                    _lastGpuMemTemp = mTemp;
+                    if (mTemp > 0) {
+                        snprintf(buf, sizeof(buf), "MEM:%dC", mTemp);
+                        uint16_t mColor = (mTemp >= th.tempCrit) ? COLOR_RED :
+                                          (mTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
+                        _tft.drawStringPadded(88, y, buf, mColor, COLOR_BLACK, 1, 72);
+                    } else {
+                        _tft.fillRect(88, y, 72, FONT_HEIGHT, COLOR_BLACK);
+                    }
+                }
+                y += 16;
+            }
 
             // GPU 記憶體
             snprintf(buf, sizeof(buf), "VRAM: %d%%", (int)dev->gpuMemPercent);
             _tft.drawStringPadded(8, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 120);
-            y += 20;
+            y += 16;
         }
 
         yield();
@@ -208,7 +240,7 @@ private:
         snprintf(buf, sizeof(buf), "^%.1fM", dev->netTxMbps);
         _tft.drawStringPadded(112, y, buf, COLOR_CYAN, COLOR_BLACK, 1, 70);
 
-        y += 20;
+        y += 16;
 
         // 磁碟
         _tft.drawString(8, y, "DISK", COLOR_GRAY, COLOR_BLACK, 1);
