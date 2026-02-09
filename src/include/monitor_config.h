@@ -8,6 +8,9 @@
 #define MONITOR_CONFIG_FILE "/monitor.json"
 #define MAX_DEVICES 8
 #define MAX_FIELDS 10
+#define DEFAULT_OFFLINE_TIMEOUT_SEC 20
+#define MIN_OFFLINE_TIMEOUT_SEC 5
+#define MAX_OFFLINE_TIMEOUT_SEC 300
 
 // 顯示欄位類型
 enum FieldType {
@@ -73,6 +76,9 @@ struct MonitorConfig {
     // 輪播設定
     uint16_t defaultDisplayTime;  // 預設顯示時間（秒）
     bool autoCarousel;            // 自動輪播
+
+    // 離線判定設定
+    uint16_t offlineTimeoutSec;   // 幾秒無更新視為離線
 };
 
 class MonitorConfigManager {
@@ -123,6 +129,9 @@ public:
         // 輪播預設
         config.defaultDisplayTime = 5;
         config.autoCarousel = true;
+
+        // 離線判定預設
+        config.offlineTimeoutSec = DEFAULT_OFFLINE_TIMEOUT_SEC;
     }
 
     bool load() {
@@ -180,6 +189,10 @@ public:
         // 輪播
         config.defaultDisplayTime = doc["displayTime"] | 5;
         config.autoCarousel = doc["autoCarousel"] | true;
+        config.offlineTimeoutSec = doc["offlineTimeoutSec"] | DEFAULT_OFFLINE_TIMEOUT_SEC;
+        config.offlineTimeoutSec = constrain(config.offlineTimeoutSec,
+                                            (uint16_t)MIN_OFFLINE_TIMEOUT_SEC,
+                                            (uint16_t)MAX_OFFLINE_TIMEOUT_SEC);
 
         Serial.println("Monitor config loaded");
         Serial.printf("  deviceCount: %d\n", config.deviceCount);
@@ -223,6 +236,7 @@ public:
         // 輪播
         doc["displayTime"] = config.defaultDisplayTime;
         doc["autoCarousel"] = config.autoCarousel;
+        doc["offlineTimeoutSec"] = config.offlineTimeoutSec;
 
         File file = LittleFS.open(MONITOR_CONFIG_FILE, "w");
         if (!file) {

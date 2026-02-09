@@ -89,10 +89,11 @@ public:
             _client.loop();
         }
 
-        // 檢查設備離線狀態（30 秒無更新視為離線）
+        // 檢查設備離線狀態（依設定檔 timeout 秒數）
         unsigned long now = millis();
+        unsigned long offlineTimeoutMs = getOfflineTimeoutMs();
         for (uint8_t i = 0; i < deviceCount; i++) {
-            if (devices[i].online && (now - devices[i].lastUpdate > 30000)) {
+            if (devices[i].online && (now - devices[i].lastUpdate > offlineTimeoutMs)) {
                 devices[i].online = false;
                 Serial.printf("Device offline: %s\n", devices[i].hostname);
             }
@@ -292,6 +293,14 @@ private:
     PubSubClient _client;
     MonitorConfigManager* _configMgr;
     unsigned long _lastReconnect = 0;
+
+    unsigned long getOfflineTimeoutMs() const {
+        if (!_configMgr) return 30000;
+        uint16_t sec = _configMgr->config.offlineTimeoutSec;
+        if (sec < MIN_OFFLINE_TIMEOUT_SEC) sec = MIN_OFFLINE_TIMEOUT_SEC;
+        if (sec > MAX_OFFLINE_TIMEOUT_SEC) sec = MAX_OFFLINE_TIMEOUT_SEC;
+        return (unsigned long)sec * 1000UL;
+    }
 
     static void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (_mqttInstance) {

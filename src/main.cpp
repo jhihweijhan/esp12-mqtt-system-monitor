@@ -91,41 +91,78 @@ void setup() {
     monitorConfig.load();
 
     // 嘗試載入並連線 WiFi
+    bool wifiConnected = false;
     if (wifiMgr.loadConfig()) {
         showConnectingScreen();
 
-        if (wifiMgr.connectWiFi()) {
-            // WiFi 連線成功
-            showConnectedScreen();
-            delay(2000);  // 顯示連線資訊 2 秒
-
-            // 進入監控模式
-            currentMode = MODE_MONITOR;
-
-            // 初始化 MQTT
-            mqttClient.begin(monitorConfig);
-
-            // 如果有設定 MQTT 伺服器，則連線
-            if (strlen(monitorConfig.config.mqttServer) > 0) {
-                showMQTTConnectingScreen();
-                mqttClient.connect();
+        const uint8_t maxConnectAttempts = 3;
+        for (uint8_t attempt = 1; attempt <= maxConnectAttempts; attempt++) {
+            Serial.printf("WiFi connect attempt %u/%u (from /wifi.json)\n", attempt, maxConnectAttempts);
+            if (wifiMgr.connectWiFi()) {
+                wifiConnected = true;
+                break;
+            }
+            if (attempt < maxConnectAttempts) {
                 delay(1000);
             }
-
-            // 初始化監控顯示
-            monitorDisplay = new MonitorDisplay(tft, mqttClient, monitorConfig);
-            monitorDisplay->begin();
-
-            // 啟動 Web Server
-            webServer = new WebServerManager(wifiMgr);
-            webServer->setMonitorConfig(&monitorConfig);
-            webServer->setMQTTClient(&mqttClient);
-            webServer->begin();
-
-            Serial.println("Monitor mode started");
-            Serial.printf("WebUI: http://%s/monitor\n", wifiMgr.localIP.c_str());
-            return;
         }
+
+        if (!wifiConnected) {
+            Serial.println("Saved WiFi found but direct connect failed");
+        }
+    } else if (!wifiMgr.isStorageReady()) {
+        Serial.println("LittleFS unavailable, cannot load /wifi.json");
+    } else {
+        Serial.println("No valid /wifi.json, fallback to SDK saved credentials");
+    }
+
+    // 備援：即使 /wifi.json 讀不到，也嘗試用 SDK 內建保存的 WiFi 憑證連線
+    if (!wifiConnected) {
+        showConnectingScreen();
+        const uint8_t maxSdkAttempts = 2;
+        for (uint8_t attempt = 1; attempt <= maxSdkAttempts; attempt++) {
+            Serial.printf("WiFi connect attempt %u/%u (from SDK)\n", attempt, maxSdkAttempts);
+            if (wifiMgr.connectStoredWiFi()) {
+                wifiConnected = true;
+                break;
+            }
+            if (attempt < maxSdkAttempts) {
+                delay(1000);
+            }
+        }
+    }
+
+    if (wifiConnected) {
+        // WiFi 連線成功
+        showConnectedScreen();
+        delay(2000);  // 顯示連線資訊 2 秒
+
+        // 進入監控模式
+        currentMode = MODE_MONITOR;
+
+        // 初始化 MQTT
+        mqttClient.begin(monitorConfig);
+
+        // 如果有設定 MQTT 伺服器，則連線
+        if (strlen(monitorConfig.config.mqttServer) > 0) {
+            showMQTTConnectingScreen();
+            mqttClient.connect();
+            delay(1000);
+        }
+
+        // 初始化監控顯示
+        monitorDisplay = new MonitorDisplay(tft, mqttClient, monitorConfig);
+        monitorDisplay->begin();
+
+        // 啟動 Web Server
+        webServer = new WebServerManager(wifiMgr);
+        webServer->setMonitorConfig(&monitorConfig);
+        webServer->setMQTTClient(&mqttClient);
+        webServer->begin();
+
+        Serial.println("Monitor mode started");
+        Serial.printf("WebUI: http://%s/monitor\n", wifiMgr.localIP.c_str());
+        return;
     }
 
     // 無設定或連線失敗 - 進入 AP 模式

@@ -26,13 +26,30 @@ public:
         snprintf(id, sizeof(id), "%02X%02X%02X", mac[3], mac[4], mac[5]);
         deviceID = String(id);
 
-        // 初始化 LittleFS
-        if (!LittleFS.begin()) {
-            Serial.println("LittleFS 初始化失敗");
+        // 初始化 LittleFS（僅重試，不自動格式化，避免清空已儲存設定）
+        _fsReady = LittleFS.begin();
+        if (!_fsReady) {
+            Serial.println("LittleFS 初始化失敗，50ms 後重試...");
+            delay(50);
+            _fsReady = LittleFS.begin();
+        }
+
+        if (!_fsReady) {
+            Serial.println("LittleFS 無法使用，保留現有資料，不執行自動格式化");
+            Serial.println("WiFi 設定將無法持久化，請手動檢查檔案系統");
         }
     }
 
+    bool isStorageReady() const {
+        return _fsReady;
+    }
+
     bool loadConfig() {
+        if (!_fsReady) {
+            Serial.println("LittleFS 未就緒，無法讀取 WiFi 設定");
+            return false;
+        }
+
         if (!LittleFS.exists(WIFI_CONFIG_FILE)) {
             Serial.println("設定檔不存在");
             return false;
@@ -49,18 +66,33 @@ public:
         file.close();
 
         if (error) {
-            Serial.println("JSON 解析失敗");
+            Serial.printf("JSON 解析失敗: %s\n", error.c_str());
             return false;
         }
 
         ssid = doc["ssid"].as<String>();
         password = doc["pass"].as<String>();
 
+        if (ssid.length() == 0) {
+            Serial.println("設定檔 SSID 為空");
+            return false;
+        }
+
         Serial.printf("載入設定: SSID=%s\n", ssid.c_str());
-        return ssid.length() > 0;
+        return true;
     }
 
     bool saveConfig(const String& newSSID, const String& newPass) {
+        if (!_fsReady) {
+            Serial.println("LittleFS 未就緒，無法儲存 WiFi 設定");
+            return false;
+        }
+
+        if (newSSID.length() == 0) {
+            Serial.println("SSID 不可為空");
+            return false;
+        }
+
         JsonDocument doc;
         doc["ssid"] = newSSID;
         doc["pass"] = newPass;
@@ -71,8 +103,34 @@ public:
             return false;
         }
 
-        serializeJson(doc, file);
+        size_t written = serializeJson(doc, file);
+        file.flush();
         file.close();
+
+        if (written == 0) {
+            Serial.println("WiFi 設定寫入失敗");
+            return false;
+        }
+
+        // 立即回讀驗證，避免重開後才發現寫入內容無效
+        File verifyFile = LittleFS.open(WIFI_CONFIG_FILE, "r");
+        if (!verifyFile) {
+            Serial.println("無法驗證設定檔");
+            return false;
+        }
+
+        JsonDocument verifyDoc;
+        DeserializationError verifyError = deserializeJson(verifyDoc, verifyFile);
+        verifyFile.close();
+        if (verifyError) {
+            Serial.printf("驗證設定檔失敗: %s\n", verifyError.c_str());
+            return false;
+        }
+
+        if (verifyDoc["ssid"].as<String>() != newSSID) {
+            Serial.println("驗證設定檔失敗: SSID 不一致");
+            return false;
+        }
 
         ssid = newSSID;
         password = newPass;
@@ -86,6 +144,8 @@ public:
 
         Serial.printf("連線到 WiFi: %s\n", ssid.c_str());
 
+        WiFi.persistent(true);
+        WiFi.setAutoReconnect(true);
         WiFi.mode(WIFI_STA);
         WiFi.begin(ssid.c_str(), password.c_str());
 
@@ -103,6 +163,34 @@ public:
         isAPMode = false;
 
         Serial.printf("\nWiFi 已連線! IP: %s\n", localIP.c_str());
+        return true;
+    }
+
+    // 使用 ESP SDK/NVS 中已儲存的 WiFi 憑證連線（不依賴 /wifi.json）
+    bool connectStoredWiFi() {
+        Serial.println("嘗試使用 SDK 儲存的 WiFi 憑證連線...");
+
+        WiFi.persistent(true);
+        WiFi.setAutoReconnect(true);
+        WiFi.mode(WIFI_STA);
+        WiFi.begin();
+
+        unsigned long startTime = millis();
+        while (WiFi.status() != WL_CONNECTED) {
+            if (millis() - startTime > WIFI_CONNECT_TIMEOUT) {
+                Serial.println("SDK WiFi 連線超時");
+                return false;
+            }
+            delay(500);
+            Serial.print(".");
+        }
+
+        // 若由 SDK 成功連線，回填目前 SSID 供 UI/日誌使用
+        ssid = WiFi.SSID();
+        localIP = WiFi.localIP().toString();
+        isAPMode = false;
+
+        Serial.printf("\nSDK WiFi 已連線! SSID=%s IP=%s\n", ssid.c_str(), localIP.c_str());
         return true;
     }
 
@@ -169,6 +257,9 @@ public:
         serializeJson(doc, result);
         return result;
     }
+
+private:
+    bool _fsReady = false;
 };
 
 #endif

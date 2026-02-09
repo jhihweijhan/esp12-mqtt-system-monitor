@@ -68,15 +68,32 @@ public:
     }
 
     void refresh() {
-        // 先嘗試取得當前在線設備
-        DeviceMetrics* dev = _mqtt.getOnlineDevice(_currentDevice);
-        if (dev) {
-            // 有在線設備 — 正常顯示，不中斷
-            showDevice(dev);
-            return;
+        uint8_t onlineCount = _mqtt.getOnlineCount();
+
+        // 有在線設備時，永遠優先顯示在線設備，不應落入 OFFLINE 畫面
+        if (onlineCount > 0) {
+            // 線上數量變動後，校正索引避免越界誤判
+            if (_currentDevice >= onlineCount) {
+                Serial.printf("Adjust current device index: %u -> 0 (online=%u)\n",
+                              _currentDevice, onlineCount);
+                _currentDevice = 0;
+                _forceRedraw = true;
+            }
+
+            DeviceMetrics* dev = _mqtt.getOnlineDevice(_currentDevice);
+            if (!dev) {
+                // 防禦性回退：理論上不應發生，但若發生仍優先嘗試第一台在線設備
+                _currentDevice = 0;
+                dev = _mqtt.getOnlineDevice(0);
+            }
+
+            if (dev) {
+                showDevice(dev);
+                return;
+            }
         }
 
-        // 沒有在線設備可顯示 — 檢查是否有離線設備需警示
+        // 僅在沒有在線設備時，才檢查離線警示
         const char* offlineDevice = nullptr;
         for (uint8_t i = 0; i < _mqtt.deviceCount; i++) {
             DeviceConfig* cfg = _config.getOrCreateDevice(_mqtt.devices[i].hostname);
@@ -86,8 +103,8 @@ public:
             }
         }
 
-        if (offlineDevice && ((millis() / 1000) % 4 < 2)) {
-            showOfflineAlert(offlineDevice);
+        if (offlineDevice) {
+            showOfflineDevice(offlineDevice);
         } else {
             showNoDevice();
         }
@@ -289,17 +306,54 @@ private:
         _tft.drawStringCentered(204, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
     }
 
-    void showOfflineAlert(const char* hostname) {
-        _tft.fillScreen(COLOR_BLACK);
-
-        _tft.fillRect(0, 80, TFT_WIDTH, 80, COLOR_RED);
-        _tft.drawStringCentered(90, "OFFLINE", COLOR_WHITE, COLOR_RED, 2);
-
+    void showOfflineDevice(const char* hostname) {
         DeviceConfig* cfg = _config.getOrCreateDevice(hostname);
         const char* alias = (cfg && strlen(cfg->alias) > 0) ? cfg->alias : hostname;
-        _tft.drawStringCentered(120, alias, COLOR_WHITE, COLOR_RED, 2);
 
-        _forceRedraw = true;
+        bool needRedraw = _forceRedraw || strcmp(_lastHostname, hostname) != 0;
+        if (!needRedraw) return;
+
+        _tft.fillScreen(COLOR_BLACK);
+        strlcpy(_lastHostname, hostname, sizeof(_lastHostname));
+        _forceRedraw = false;
+        _ui.drawDeviceHeader(alias, false);
+
+        int16_t y = 36;
+        _tft.drawString(8, y, "CPU", COLOR_WHITE, COLOR_BLACK, 2);
+        _tft.drawStringPadded(64, y, "--%", COLOR_GRAY, COLOR_BLACK, 2, 80);
+        _tft.drawStringPadded(152, y, "--C", COLOR_GRAY, COLOR_BLACK, 2, 80);
+
+        y += 36;
+        _tft.drawString(8, y, "RAM", COLOR_WHITE, COLOR_BLACK, 2);
+        _tft.drawStringPadded(64, y, "--%", COLOR_GRAY, COLOR_BLACK, 2, 70);
+        _tft.drawStringPadded(136, y, "--/--G", COLOR_GRAY, COLOR_BLACK, 1, 100);
+
+        y += 36;
+        _tft.drawString(8, y, "GPU", COLOR_WHITE, COLOR_BLACK, 2);
+        _tft.drawStringPadded(64, y, "--%", COLOR_GRAY, COLOR_BLACK, 2, 80);
+        _tft.drawStringPadded(152, y, "--C", COLOR_GRAY, COLOR_BLACK, 2, 80);
+
+        y += 36;
+        _tft.drawString(8, y, "NET", COLOR_GRAY, COLOR_BLACK, 1);
+        _tft.drawStringPadded(40, y, "v--", COLOR_GRAY, COLOR_BLACK, 1, 70);
+        _tft.drawStringPadded(112, y, "^--", COLOR_GRAY, COLOR_BLACK, 1, 70);
+
+        y += 16;
+        _tft.drawString(8, y, "DISK", COLOR_GRAY, COLOR_BLACK, 1);
+        _tft.drawStringPadded(48, y, "R:--", COLOR_GRAY, COLOR_BLACK, 1, 78);
+        _tft.drawStringPadded(128, y, "W:--", COLOR_GRAY, COLOR_BLACK, 1, 78);
+
+        y = 204;
+        String ip = WiFi.localIP().toString();
+        _tft.drawStringCentered(y, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
+
+        y = 222;
+        if (_mqtt.isConnected()) {
+            _tft.drawString(8, y, "MQTT OK", COLOR_GREEN, COLOR_BLACK, 1);
+        } else {
+            _tft.drawString(8, y, "MQTT --", COLOR_RED, COLOR_BLACK, 1);
+        }
+        _tft.drawStringPadded(168, y, "OFFLINE", COLOR_RED, COLOR_BLACK, 1, 70);
     }
 };
 

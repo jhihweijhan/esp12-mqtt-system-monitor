@@ -68,10 +68,19 @@ public:
 
             Serial.printf("WiFi config: SSID=%s\n", ssid.c_str());
 
+            if (ssid.length() == 0) {
+                request->send(400, "application/json", "{\"success\":false,\"message\":\"SSID required\"}");
+                return;
+            }
+
             // 儲存設定
-            _wifiMgr.saveConfig(ssid, pass);
+            if (!_wifiMgr.saveConfig(ssid, pass)) {
+                request->send(500, "application/json", "{\"success\":false,\"message\":\"save failed\"}");
+                return;
+            }
 
             // 嘗試連線
+            WiFi.persistent(true);  // 同步保存到 SDK 憑證區，供重開機備援連線
             WiFi.mode(WIFI_AP_STA);
             WiFi.begin(ssid.c_str(), pass.c_str());
 
@@ -134,6 +143,7 @@ public:
             // 輪播
             doc["displayTime"] = cfg.defaultDisplayTime;
             doc["autoCarousel"] = cfg.autoCarousel;
+            doc["offlineTimeoutSec"] = cfg.offlineTimeoutSec;
 
             String json;
             serializeJson(doc, json);
@@ -195,6 +205,10 @@ public:
                 // 輪播
                 cfg.defaultDisplayTime = data["displayTime"] | 5;
                 cfg.autoCarousel = data["autoCarousel"] | true;
+                cfg.offlineTimeoutSec = data["offlineTimeoutSec"] | DEFAULT_OFFLINE_TIMEOUT_SEC;
+                cfg.offlineTimeoutSec = constrain(cfg.offlineTimeoutSec,
+                                                  (uint16_t)MIN_OFFLINE_TIMEOUT_SEC,
+                                                  (uint16_t)MAX_OFFLINE_TIMEOUT_SEC);
 
                 // 儲存
                 if (_monitorConfig->save()) {
