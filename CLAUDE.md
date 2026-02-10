@@ -82,3 +82,4 @@ main.cpp                    Entry point, mode switching (AP_SETUP / MONITOR)
   "temperatures": {"coretemp": [{"current": 55.0}]}
 }
 ```
+Use 'bd' for task tracking
