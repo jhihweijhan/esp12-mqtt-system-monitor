@@ -30,8 +30,7 @@ safe_rg_code() {
     local pattern="$1"
     rg -n --no-heading -S \
         -g '*.c' -g '*.cc' -g '*.cpp' -g '*.h' -g '*.hpp' -g '*.ino' \
-        -g '!**/html_*.h' \
-        "$pattern" "$TARGET_PATH" || true
+        "$pattern" "$TARGET_PATH" | rg -v '/html_.*\.h:' || true
 }
 
 print_section "Potential Blocking Delays (>=100ms)"
