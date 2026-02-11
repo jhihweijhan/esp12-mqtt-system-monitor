@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
+#include "connection_policy.h"
 #include "wifi_manager.h"
 #include "html_page.h"
 #include "html_monitor.h"
@@ -19,6 +20,8 @@ public:
 
     // 在 main loop 中呼叫，處理延遲重啟
     void loop() {
+        processPendingWifiApply();
+
         if (_pendingRestart && millis() >= _restartAt) {
             Serial.println("Restarting...");
             delay(100);
@@ -27,6 +30,15 @@ public:
     }
 
     void begin() {
+        static bool headersInitialized = false;
+        if (!headersInitialized) {
+            DefaultHeaders::Instance().addHeader("Cache-Control", "no-store");
+            DefaultHeaders::Instance().addHeader("X-Content-Type-Options", "nosniff");
+            DefaultHeaders::Instance().addHeader("X-Frame-Options", "DENY");
+            DefaultHeaders::Instance().addHeader("Referrer-Policy", "no-referrer");
+            headersInitialized = true;
+        }
+
         // 首頁 - 根據模式顯示不同頁面
         _server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
             if (_wifiMgr.isAPMode) {
@@ -39,7 +51,11 @@ public:
         });
 
         // WiFi 設定頁面（直接存取）
-        _server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
+        _server.on("/wifi", HTTP_GET, [this](AsyncWebServerRequest *request) {
+            if (!_wifiMgr.isAPMode) {
+                request->send(403, "application/json", "{\"success\":false,\"message\":\"available in AP mode only\"}");
+                return;
+            }
             request->send_P(200, "text/html", HTML_PAGE);
         });
 
@@ -50,12 +66,26 @@ public:
 
         // 掃描 WiFi
         _server.on("/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+            if (!_wifiMgr.isAPMode) {
+                request->send(403, "application/json", "{\"success\":false,\"message\":\"available in AP mode only\"}");
+                return;
+            }
             String json = _wifiMgr.getScanResults();
             request->send(200, "application/json", json);
         });
 
         // 儲存 WiFi 設定
         _server.on("/save", HTTP_POST, [this](AsyncWebServerRequest *request) {
+            if (!_wifiMgr.isAPMode) {
+                request->send(403, "application/json", "{\"success\":false,\"message\":\"available in AP mode only\"}");
+                return;
+            }
+
+            if (isWifiApplyBusy()) {
+                request->send(409, "application/json", "{\"success\":false,\"message\":\"wifi apply in progress\"}");
+                return;
+            }
+
             String ssid = "";
             String pass = "";
 
@@ -73,34 +103,22 @@ public:
                 return;
             }
 
+            if (!isValidWifiCredentialLength(ssid.length(), pass.length())) {
+                request->send(400, "application/json", "{\"success\":false,\"message\":\"invalid WiFi credential length\"}");
+                return;
+            }
+
             // 儲存設定
             if (!_wifiMgr.saveConfig(ssid, pass)) {
                 request->send(500, "application/json", "{\"success\":false,\"message\":\"save failed\"}");
                 return;
             }
 
-            // 嘗試連線
-            WiFi.persistent(true);  // 同步保存到 SDK 憑證區，供重開機備援連線
-            WiFi.mode(WIFI_AP_STA);
-            WiFi.begin(ssid.c_str(), pass.c_str());
+            _wifiApplyAttempts = 0;
+            _wifiApplyState = WIFI_APPLY_PENDING_START;
+            _wifiApplyNextAt = millis();
 
-            unsigned long start = millis();
-            while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
-                delay(500);
-            }
-
-            String response;
-            if (WiFi.status() == WL_CONNECTED) {
-                String ip = WiFi.localIP().toString();
-                response = "{\"success\":true,\"ip\":\"" + ip + "\"}";
-                request->send(200, "application/json", response);
-
-                _pendingRestart = true;
-                _restartAt = millis() + 3000;
-            } else {
-                response = "{\"success\":false,\"message\":\"Connection failed\"}";
-                request->send(200, "application/json", response);
-            }
+            request->send(202, "application/json", "{\"success\":true,\"message\":\"connecting\",\"pending\":true}");
         });
 
         // 取得監控設定
@@ -158,16 +176,34 @@ public:
                     return;
                 }
 
+                if (request->contentLength() > MQTT_MAX_PAYLOAD_BYTES) {
+                    request->send(413, "application/json", "{\"success\":false,\"message\":\"payload too large\"}");
+                    return;
+                }
+
                 JsonObject data = json.as<JsonObject>();
                 MonitorConfig& cfg = _monitorConfig->config;
 
                 // MQTT
                 if (data["mqtt"].is<JsonObject>()) {
                     JsonObject mqtt = data["mqtt"];
-                    strlcpy(cfg.mqttServer, mqtt["server"] | "", sizeof(cfg.mqttServer));
-                    cfg.mqttPort = mqtt["port"] | 1883;
-                    strlcpy(cfg.mqttTopic, mqtt["topic"] | "sys/agents/+/metrics", sizeof(cfg.mqttTopic));
-                    strlcpy(cfg.mqttUser, mqtt["user"] | "", sizeof(cfg.mqttUser));
+                    const char* mqttServer = mqtt["server"] | "";
+                    const char* mqttTopic = mqtt["topic"] | "sys/agents/+/metrics";
+                    const char* mqttUser = mqtt["user"] | "";
+                    uint16_t mqttPort = mqtt["port"] | 1883;
+
+                    if (strlen(mqttServer) >= sizeof(cfg.mqttServer) ||
+                        strlen(mqttTopic) >= sizeof(cfg.mqttTopic) ||
+                        strlen(mqttUser) >= sizeof(cfg.mqttUser) ||
+                        !isValidMqttPort(mqttPort)) {
+                        request->send(400, "application/json", "{\"success\":false,\"message\":\"invalid MQTT settings\"}");
+                        return;
+                    }
+
+                    strlcpy(cfg.mqttServer, mqttServer, sizeof(cfg.mqttServer));
+                    cfg.mqttPort = mqttPort;
+                    strlcpy(cfg.mqttTopic, mqttTopic, sizeof(cfg.mqttTopic));
+                    strlcpy(cfg.mqttUser, mqttUser, sizeof(cfg.mqttUser));
                     const char* pass = mqtt["pass"] | "";
                     if (strlen(pass) > 0) {
                         strlcpy(cfg.mqttPass, pass, sizeof(cfg.mqttPass));
@@ -230,6 +266,7 @@ public:
             doc["mqttConnected"] = _mqtt ? _mqtt->isConnected() : false;
             doc["deviceCount"] = _mqtt ? _mqtt->deviceCount : 0;
             doc["onlineCount"] = _mqtt ? _mqtt->getOnlineCount() : 0;
+            doc["wifiApplyState"] = wifiApplyStateToString();
 
             if (_mqtt) {
                 JsonArray devices = doc["devices"].to<JsonArray>();
@@ -252,12 +289,90 @@ public:
     }
 
 private:
+    enum WifiApplyState : uint8_t {
+        WIFI_APPLY_IDLE = 0,
+        WIFI_APPLY_PENDING_START,
+        WIFI_APPLY_CONNECTING,
+        WIFI_APPLY_RETRY_WAIT,
+        WIFI_APPLY_FAILED,
+        WIFI_APPLY_SUCCESS
+    };
+
+    bool isWifiApplyBusy() const {
+        return _wifiApplyState == WIFI_APPLY_PENDING_START ||
+               _wifiApplyState == WIFI_APPLY_CONNECTING ||
+               _wifiApplyState == WIFI_APPLY_RETRY_WAIT;
+    }
+
+    const char* wifiApplyStateToString() const {
+        switch (_wifiApplyState) {
+            case WIFI_APPLY_PENDING_START: return "pending";
+            case WIFI_APPLY_CONNECTING: return "connecting";
+            case WIFI_APPLY_RETRY_WAIT: return "retry_wait";
+            case WIFI_APPLY_FAILED: return "failed";
+            case WIFI_APPLY_SUCCESS: return "success";
+            default: return "idle";
+        }
+    }
+
+    void processPendingWifiApply() {
+        if (!isWifiApplyBusy()) return;
+
+        unsigned long now = millis();
+        if (_wifiApplyState == WIFI_APPLY_RETRY_WAIT) {
+            if ((long)(now - _wifiApplyNextAt) < 0) {
+                return;
+            }
+            _wifiApplyState = WIFI_APPLY_PENDING_START;
+        }
+
+        if (_wifiApplyState == WIFI_APPLY_PENDING_START) {
+            _wifiApplyAttempts++;
+            if (!_wifiMgr.startConnectWiFi()) {
+                _wifiApplyState = WIFI_APPLY_FAILED;
+                Serial.println("WiFi apply failed: unable to start connect");
+                return;
+            }
+            _wifiApplyState = WIFI_APPLY_CONNECTING;
+            return;
+        }
+
+        if (_wifiApplyState != WIFI_APPLY_CONNECTING) return;
+
+        WiFiManager::ConnectResult result = _wifiMgr.pollConnect();
+        if (result == WiFiManager::CONNECT_IN_PROGRESS || result == WiFiManager::CONNECT_IDLE) {
+            return;
+        }
+
+        if (result == WiFiManager::CONNECT_SUCCESS) {
+            _wifiApplyState = WIFI_APPLY_SUCCESS;
+            _pendingRestart = true;
+            _restartAt = millis() + 3000;
+            Serial.println("WiFi apply success, scheduling restart...");
+            return;
+        }
+
+        if (_wifiApplyAttempts < 2) {
+            _wifiApplyState = WIFI_APPLY_RETRY_WAIT;
+            _wifiApplyNextAt = millis() + 1000;
+            return;
+        }
+
+        _wifiApplyState = WIFI_APPLY_FAILED;
+        Serial.println("WiFi apply failed after retries");
+        _wifiMgr.startAP();
+        _wifiMgr.startScan();
+    }
+
     AsyncWebServer _server;
     WiFiManager& _wifiMgr;
     MonitorConfigManager* _monitorConfig = nullptr;
     MQTTClient* _mqtt = nullptr;
     volatile bool _pendingRestart = false;
     unsigned long _restartAt = 0;
+    WifiApplyState _wifiApplyState = WIFI_APPLY_IDLE;
+    unsigned long _wifiApplyNextAt = 0;
+    uint8_t _wifiApplyAttempts = 0;
 };
 
 #endif

@@ -12,6 +12,14 @@
 
 class WiFiManager {
 public:
+    enum ConnectResult {
+        CONNECT_IDLE = 0,
+        CONNECT_IN_PROGRESS,
+        CONNECT_SUCCESS,
+        CONNECT_TIMEOUT,
+        CONNECT_FAILED
+    };
+
     String ssid;
     String password;
     String deviceID;
@@ -139,7 +147,7 @@ public:
         return true;
     }
 
-    bool connectWiFi() {
+    bool startConnectWiFi() {
         if (ssid.length() == 0) return false;
 
         Serial.printf("連線到 WiFi: %s\n", ssid.c_str());
@@ -149,25 +157,15 @@ public:
         WiFi.mode(WIFI_STA);
         WiFi.begin(ssid.c_str(), password.c_str());
 
-        unsigned long startTime = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            if (millis() - startTime > WIFI_CONNECT_TIMEOUT) {
-                Serial.println("WiFi 連線超時");
-                return false;
-            }
-            delay(500);
-            Serial.print(".");
-        }
-
-        localIP = WiFi.localIP().toString();
-        isAPMode = false;
-
-        Serial.printf("\nWiFi 已連線! IP: %s\n", localIP.c_str());
+        _connectStartTime = millis();
+        _lastConnectDotAt = _connectStartTime;
+        _connectUsingStoredCredential = false;
+        _connectInProgress = true;
         return true;
     }
 
     // 使用 ESP SDK/NVS 中已儲存的 WiFi 憑證連線（不依賴 /wifi.json）
-    bool connectStoredWiFi() {
+    bool startConnectStoredWiFi() {
         Serial.println("嘗試使用 SDK 儲存的 WiFi 憑證連線...");
 
         WiFi.persistent(true);
@@ -175,23 +173,77 @@ public:
         WiFi.mode(WIFI_STA);
         WiFi.begin();
 
-        unsigned long startTime = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            if (millis() - startTime > WIFI_CONNECT_TIMEOUT) {
-                Serial.println("SDK WiFi 連線超時");
-                return false;
+        _connectStartTime = millis();
+        _lastConnectDotAt = _connectStartTime;
+        _connectUsingStoredCredential = true;
+        _connectInProgress = true;
+        return true;
+    }
+
+    ConnectResult pollConnect() {
+        if (!_connectInProgress) return CONNECT_IDLE;
+
+        if (WiFi.status() == WL_CONNECTED) {
+            // 若由 SDK 成功連線，回填目前 SSID 供 UI/日誌使用
+            if (_connectUsingStoredCredential) {
+                ssid = WiFi.SSID();
             }
-            delay(500);
+            localIP = WiFi.localIP().toString();
+            isAPMode = false;
+            _connectInProgress = false;
+
+            if (_connectUsingStoredCredential) {
+                Serial.printf("\nSDK WiFi 已連線! SSID=%s IP=%s\n", ssid.c_str(), localIP.c_str());
+            } else {
+                Serial.printf("\nWiFi 已連線! IP: %s\n", localIP.c_str());
+            }
+            return CONNECT_SUCCESS;
+        }
+
+        unsigned long now = millis();
+        if (now - _connectStartTime > WIFI_CONNECT_TIMEOUT) {
+            _connectInProgress = false;
+            if (_connectUsingStoredCredential) {
+                Serial.println("\nSDK WiFi 連線超時");
+            } else {
+                Serial.println("\nWiFi 連線超時");
+            }
+            return CONNECT_TIMEOUT;
+        }
+
+        if (now - _lastConnectDotAt >= 500) {
+            _lastConnectDotAt = now;
             Serial.print(".");
         }
 
-        // 若由 SDK 成功連線，回填目前 SSID 供 UI/日誌使用
-        ssid = WiFi.SSID();
-        localIP = WiFi.localIP().toString();
-        isAPMode = false;
+        return CONNECT_IN_PROGRESS;
+    }
 
-        Serial.printf("\nSDK WiFi 已連線! SSID=%s IP=%s\n", ssid.c_str(), localIP.c_str());
-        return true;
+    void cancelConnect() {
+        _connectInProgress = false;
+        WiFi.disconnect();
+    }
+
+    bool connectWiFi() {
+        if (!startConnectWiFi()) return false;
+        while (true) {
+            ConnectResult result = pollConnect();
+            if (result == CONNECT_SUCCESS) return true;
+            if (result == CONNECT_TIMEOUT || result == CONNECT_FAILED) return false;
+            delay(10);
+            yield();
+        }
+    }
+
+    bool connectStoredWiFi() {
+        if (!startConnectStoredWiFi()) return false;
+        while (true) {
+            ConnectResult result = pollConnect();
+            if (result == CONNECT_SUCCESS) return true;
+            if (result == CONNECT_TIMEOUT || result == CONNECT_FAILED) return false;
+            delay(10);
+            yield();
+        }
     }
 
     void startAP() {
@@ -206,6 +258,7 @@ public:
 
         localIP = WiFi.softAPIP().toString();
         isAPMode = true;
+        _connectInProgress = false;
 
         Serial.printf("AP 已啟動! IP: %s\n", localIP.c_str());
     }
@@ -260,6 +313,10 @@ public:
 
 private:
     bool _fsReady = false;
+    bool _connectInProgress = false;
+    bool _connectUsingStoredCredential = false;
+    unsigned long _connectStartTime = 0;
+    unsigned long _lastConnectDotAt = 0;
 };
 
 #endif

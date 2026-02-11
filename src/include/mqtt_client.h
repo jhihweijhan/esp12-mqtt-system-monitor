@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include "connection_policy.h"
 #include "monitor_config.h"
 
 #define MAX_METRICS_DEVICES 8
@@ -69,10 +70,11 @@ public:
 
         _client.setServer(_configMgr->config.mqttServer, _configMgr->config.mqttPort);
         _client.setCallback(mqttCallback);
-        // 增加緩衝區至 16KB 以處理大型 JSON 訊息
-        // ESP8266 有 80KB RAM，這是合理的大小
-        _client.setBufferSize(16384);
+        // 限制到 8KB，兼顧大型 payload 與 ESP8266 記憶體壓力
+        _client.setBufferSize(MQTT_MAX_PAYLOAD_BYTES);
 
+        _reconnectFailureCount = 0;
+        _nextReconnectAt = 0;
         reconnect();
     }
 
@@ -81,8 +83,8 @@ public:
 
         if (!_client.connected()) {
             unsigned long now = millis();
-            if (now - _lastReconnect > 5000) {
-                _lastReconnect = now;
+            connected = false;
+            if (_nextReconnectAt == 0 || (long)(now - _nextReconnectAt) >= 0) {
                 reconnect();
             }
         } else {
@@ -143,6 +145,11 @@ public:
     }
 
     void handleMessage(char* topic, byte* payload, unsigned int length) {
+        if (!isValidMqttPayloadLength(length)) {
+            Serial.printf("MQTT payload rejected: %u bytes\n", length);
+            return;
+        }
+
         Serial.printf("MQTT msg: %s (%u bytes)\n", topic, length);
 
         // 解析 topic 取得 hostname: sys/agents/{hostname}/metrics
@@ -161,15 +168,6 @@ public:
         strncpy(hostname, start, len);
         hostname[len] = '\0';
 
-        // 解析 JSON (限制解析深度和大小以避免記憶體問題)
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, payload, length);
-        if (error) {
-            Serial.printf("JSON parse failed: %s\n", error.c_str());
-            return;
-        }
-        yield();  // 讓 WDT 不會超時
-
         // 取得或建立設備
         DeviceMetrics* dev = getDevice(hostname);
         if (!dev) {
@@ -178,15 +176,27 @@ public:
                 return;
             }
             dev = &devices[deviceCount++];
+            memset(dev, 0, sizeof(DeviceMetrics));
             strlcpy(dev->hostname, hostname, sizeof(dev->hostname));
 
             // 確保設定管理器也有此設備
             _configMgr->getOrCreateDevice(hostname);
         }
 
-        // 更新指標
+        // 先標記該設備有收到訊息（heartbeat）
+        // 即使 JSON 內容異常，也不應直接判定設備離線
         dev->lastUpdate = millis();
         dev->online = true;
+
+        // 解析 JSON (限制解析深度和大小以避免記憶體問題)
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, payload, length);
+        if (error) {
+            Serial.printf("JSON parse failed [%s, %u bytes]: %s\n",
+                          hostname, length, error.c_str());
+            return;
+        }
+        yield();  // 讓 WDT 不會超時
 
         // CPU (agent_sender_async.py: cpu.percent_total)
         dev->cpuPercent = doc["cpu"]["percent_total"] | 0.0f;
@@ -292,7 +302,8 @@ private:
     WiFiClient _wifiClient;
     PubSubClient _client;
     MonitorConfigManager* _configMgr;
-    unsigned long _lastReconnect = 0;
+    unsigned long _nextReconnectAt = 0;
+    uint8_t _reconnectFailureCount = 0;
 
     unsigned long getOfflineTimeoutMs() const {
         if (!_configMgr) return 30000;
@@ -326,12 +337,22 @@ private:
 
         if (success) {
             connected = true;
+            _reconnectFailureCount = 0;
+            _nextReconnectAt = 0;
             Serial.println("MQTT connected");
             _client.subscribe(_configMgr->config.mqttTopic);
             Serial.printf("Subscribed: %s\n", _configMgr->config.mqttTopic);
         } else {
             connected = false;
-            Serial.printf("MQTT failed, rc=%d\n", _client.state());
+            if (_reconnectFailureCount < 250) {
+                _reconnectFailureCount++;
+            }
+            uint32_t delayMs = computeMqttReconnectDelayMs(_reconnectFailureCount);
+            uint32_t jitter = random(0, 500);
+            _nextReconnectAt = millis() + delayMs + jitter;
+            Serial.printf("MQTT failed, rc=%d, retry in %lu ms\n",
+                          _client.state(),
+                          (unsigned long)(delayMs + jitter));
         }
     }
 };

@@ -100,7 +100,11 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
             .then(data => {
                 if (data.success) {
                     status.className = 'status success';
-                    status.innerHTML = `✅ 已連線!<br>IP: ${data.ip}<br>3 秒後重啟...`;
+                    if (data.pending) {
+                        status.innerHTML = '✅ 設定已儲存<br>正在嘗試連線，成功後自動重啟...';
+                    } else {
+                        status.innerHTML = `✅ 已連線!<br>IP: ${data.ip || '-'}<br>3 秒後重啟...`;
+                    }
                 } else {
                     status.className = 'status error';
                     status.textContent = '❌ 連線失敗: ' + data.message;

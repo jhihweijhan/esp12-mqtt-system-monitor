@@ -22,6 +22,28 @@ enum AppMode {
 
 AppMode currentMode = MODE_AP_SETUP;
 
+enum StartupState {
+    STARTUP_INIT = 0,
+    STARTUP_TRY_SAVED_START,
+    STARTUP_TRY_SAVED_WAIT,
+    STARTUP_TRY_SAVED_DELAY,
+    STARTUP_TRY_SDK_START,
+    STARTUP_TRY_SDK_WAIT,
+    STARTUP_TRY_SDK_DELAY,
+    STARTUP_WIFI_CONNECTED_DELAY,
+    STARTUP_ENTER_AP,
+    STARTUP_DONE
+};
+
+StartupState startupState = STARTUP_INIT;
+uint8_t savedConnectAttempts = 0;
+uint8_t sdkConnectAttempts = 0;
+unsigned long startupNextAt = 0;
+bool hasSavedWiFiConfig = false;
+
+const uint8_t MAX_SAVED_CONNECT_ATTEMPTS = 3;
+const uint8_t MAX_SDK_CONNECT_ATTEMPTS = 2;
+
 // 顯示 AP 模式畫面
 void showAPScreen() {
     tft.fillScreen(COLOR_BLACK);
@@ -73,6 +95,150 @@ void showMQTTConnectingScreen() {
     tft.drawStringCentered(150, monitorConfig.config.mqttServer, COLOR_GRAY, COLOR_BLACK, 1);
 }
 
+void startMonitorMode() {
+    currentMode = MODE_MONITOR;
+
+    mqttClient.begin(monitorConfig);
+    if (strlen(monitorConfig.config.mqttServer) > 0) {
+        showMQTTConnectingScreen();
+        mqttClient.connect();
+    }
+
+    if (!monitorDisplay) {
+        monitorDisplay = new MonitorDisplay(tft, mqttClient, monitorConfig);
+        monitorDisplay->begin();
+    }
+
+    if (!webServer) {
+        webServer = new WebServerManager(wifiMgr);
+        webServer->setMonitorConfig(&monitorConfig);
+        webServer->setMQTTClient(&mqttClient);
+        webServer->begin();
+    }
+
+    Serial.println("Monitor mode started");
+    Serial.printf("WebUI: http://%s/monitor\n", wifiMgr.localIP.c_str());
+    startupState = STARTUP_DONE;
+}
+
+void startAPMode() {
+    currentMode = MODE_AP_SETUP;
+    Serial.println("Entering AP mode");
+
+    wifiMgr.startAP();
+    showAPScreen();
+    wifiMgr.startScan();
+
+    if (!webServer) {
+        webServer = new WebServerManager(wifiMgr);
+        webServer->setMonitorConfig(&monitorConfig);
+        webServer->begin();
+    }
+
+    startupState = STARTUP_DONE;
+}
+
+void processStartup() {
+    switch (startupState) {
+        case STARTUP_TRY_SAVED_START:
+            if (!hasSavedWiFiConfig) {
+                startupState = STARTUP_TRY_SDK_START;
+                break;
+            }
+            if (savedConnectAttempts >= MAX_SAVED_CONNECT_ATTEMPTS) {
+                Serial.println("Saved WiFi found but direct connect failed");
+                startupState = STARTUP_TRY_SDK_START;
+                break;
+            }
+            savedConnectAttempts++;
+            Serial.printf("WiFi connect attempt %u/%u (from /wifi.json)\n",
+                          savedConnectAttempts, MAX_SAVED_CONNECT_ATTEMPTS);
+            if (!wifiMgr.startConnectWiFi()) {
+                startupState = STARTUP_TRY_SDK_START;
+                break;
+            }
+            startupState = STARTUP_TRY_SAVED_WAIT;
+            break;
+
+        case STARTUP_TRY_SAVED_WAIT: {
+            WiFiManager::ConnectResult result = wifiMgr.pollConnect();
+            if (result == WiFiManager::CONNECT_SUCCESS) {
+                showConnectedScreen();
+                startupNextAt = millis() + 2000;
+                startupState = STARTUP_WIFI_CONNECTED_DELAY;
+            } else if (result == WiFiManager::CONNECT_TIMEOUT || result == WiFiManager::CONNECT_FAILED) {
+                if (savedConnectAttempts < MAX_SAVED_CONNECT_ATTEMPTS) {
+                    startupNextAt = millis() + 1000;
+                    startupState = STARTUP_TRY_SAVED_DELAY;
+                } else {
+                    startupState = STARTUP_TRY_SDK_START;
+                }
+            }
+            break;
+        }
+
+        case STARTUP_TRY_SAVED_DELAY:
+            if ((long)(millis() - startupNextAt) >= 0) {
+                startupState = STARTUP_TRY_SAVED_START;
+            }
+            break;
+
+        case STARTUP_TRY_SDK_START:
+            if (sdkConnectAttempts >= MAX_SDK_CONNECT_ATTEMPTS) {
+                startupState = STARTUP_ENTER_AP;
+                break;
+            }
+            showConnectingScreen();
+            sdkConnectAttempts++;
+            Serial.printf("WiFi connect attempt %u/%u (from SDK)\n",
+                          sdkConnectAttempts, MAX_SDK_CONNECT_ATTEMPTS);
+            if (!wifiMgr.startConnectStoredWiFi()) {
+                startupState = STARTUP_ENTER_AP;
+                break;
+            }
+            startupState = STARTUP_TRY_SDK_WAIT;
+            break;
+
+        case STARTUP_TRY_SDK_WAIT: {
+            WiFiManager::ConnectResult result = wifiMgr.pollConnect();
+            if (result == WiFiManager::CONNECT_SUCCESS) {
+                showConnectedScreen();
+                startupNextAt = millis() + 2000;
+                startupState = STARTUP_WIFI_CONNECTED_DELAY;
+            } else if (result == WiFiManager::CONNECT_TIMEOUT || result == WiFiManager::CONNECT_FAILED) {
+                if (sdkConnectAttempts < MAX_SDK_CONNECT_ATTEMPTS) {
+                    startupNextAt = millis() + 1000;
+                    startupState = STARTUP_TRY_SDK_DELAY;
+                } else {
+                    startupState = STARTUP_ENTER_AP;
+                }
+            }
+            break;
+        }
+
+        case STARTUP_TRY_SDK_DELAY:
+            if ((long)(millis() - startupNextAt) >= 0) {
+                startupState = STARTUP_TRY_SDK_START;
+            }
+            break;
+
+        case STARTUP_WIFI_CONNECTED_DELAY:
+            if ((long)(millis() - startupNextAt) >= 0) {
+                startMonitorMode();
+            }
+            break;
+
+        case STARTUP_ENTER_AP:
+            startAPMode();
+            break;
+
+        case STARTUP_DONE:
+        case STARTUP_INIT:
+        default:
+            break;
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     delay(500);
@@ -90,97 +256,33 @@ void setup() {
     monitorConfig.begin();
     monitorConfig.load();
 
-    // 嘗試載入並連線 WiFi
-    bool wifiConnected = false;
-    if (wifiMgr.loadConfig()) {
+    // 啟動非阻塞連線流程
+    hasSavedWiFiConfig = wifiMgr.loadConfig();
+    if (hasSavedWiFiConfig) {
         showConnectingScreen();
-
-        const uint8_t maxConnectAttempts = 3;
-        for (uint8_t attempt = 1; attempt <= maxConnectAttempts; attempt++) {
-            Serial.printf("WiFi connect attempt %u/%u (from /wifi.json)\n", attempt, maxConnectAttempts);
-            if (wifiMgr.connectWiFi()) {
-                wifiConnected = true;
-                break;
-            }
-            if (attempt < maxConnectAttempts) {
-                delay(1000);
-            }
-        }
-
-        if (!wifiConnected) {
-            Serial.println("Saved WiFi found but direct connect failed");
-        }
+        startupState = STARTUP_TRY_SAVED_START;
     } else if (!wifiMgr.isStorageReady()) {
         Serial.println("LittleFS unavailable, cannot load /wifi.json");
+        showConnectingScreen();
+        startupState = STARTUP_TRY_SDK_START;
     } else {
         Serial.println("No valid /wifi.json, fallback to SDK saved credentials");
-    }
-
-    // 備援：即使 /wifi.json 讀不到，也嘗試用 SDK 內建保存的 WiFi 憑證連線
-    if (!wifiConnected) {
         showConnectingScreen();
-        const uint8_t maxSdkAttempts = 2;
-        for (uint8_t attempt = 1; attempt <= maxSdkAttempts; attempt++) {
-            Serial.printf("WiFi connect attempt %u/%u (from SDK)\n", attempt, maxSdkAttempts);
-            if (wifiMgr.connectStoredWiFi()) {
-                wifiConnected = true;
-                break;
-            }
-            if (attempt < maxSdkAttempts) {
-                delay(1000);
-            }
-        }
+        startupState = STARTUP_TRY_SDK_START;
     }
-
-    if (wifiConnected) {
-        // WiFi 連線成功
-        showConnectedScreen();
-        delay(2000);  // 顯示連線資訊 2 秒
-
-        // 進入監控模式
-        currentMode = MODE_MONITOR;
-
-        // 初始化 MQTT
-        mqttClient.begin(monitorConfig);
-
-        // 如果有設定 MQTT 伺服器，則連線
-        if (strlen(monitorConfig.config.mqttServer) > 0) {
-            showMQTTConnectingScreen();
-            mqttClient.connect();
-            delay(1000);
-        }
-
-        // 初始化監控顯示
-        monitorDisplay = new MonitorDisplay(tft, mqttClient, monitorConfig);
-        monitorDisplay->begin();
-
-        // 啟動 Web Server
-        webServer = new WebServerManager(wifiMgr);
-        webServer->setMonitorConfig(&monitorConfig);
-        webServer->setMQTTClient(&mqttClient);
-        webServer->begin();
-
-        Serial.println("Monitor mode started");
-        Serial.printf("WebUI: http://%s/monitor\n", wifiMgr.localIP.c_str());
-        return;
-    }
-
-    // 無設定或連線失敗 - 進入 AP 模式
-    currentMode = MODE_AP_SETUP;
-    Serial.println("Entering AP mode");
-    wifiMgr.startAP();
-    showAPScreen();
-
-    // 開始背景掃描 WiFi
-    wifiMgr.startScan();
-
-    // 啟動 Web Server
-    webServer = new WebServerManager(wifiMgr);
-    webServer->setMonitorConfig(&monitorConfig);
-    webServer->begin();
 }
 
 void loop() {
+    if (startupState != STARTUP_DONE) {
+        processStartup();
+        if (webServer) {
+            webServer->loop();
+        }
+        yield();
+        delay(2);
+        return;
+    }
+
     // Web Server 延遲重啟
     if (webServer) webServer->loop();
 
