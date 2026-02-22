@@ -15,6 +15,7 @@ static const uint16_t DISPLAY_IDLE_REFRESH_MS = 1000U;
 static const uint16_t DISPLAY_ACTIVE_REFRESH_MS = 250U;
 static const uint16_t DISPLAY_FORCE_REDRAW_REFRESH_MS = 120U;
 static const uint16_t MQTT_RX_LOG_INTERVAL_MS = 2000U;
+static const uint16_t MQTT_STATUS_DISCONNECT_GRACE_MS = 5000U;
 
 static inline uint32_t computeMqttReconnectDelayMs(uint8_t failureCount) {
     if (failureCount > 31) {
@@ -120,6 +121,25 @@ static inline uint16_t computeDisplayRefreshIntervalMs(bool hasPendingVisibleUpd
         return DISPLAY_FORCE_REDRAW_REFRESH_MS;
     }
     return hasPendingVisibleUpdate ? DISPLAY_ACTIVE_REFRESH_MS : DISPLAY_IDLE_REFRESH_MS;
+}
+
+static inline bool shouldShowMqttDisconnectedStatus(bool socketConnected,
+                                                    unsigned long nowMs,
+                                                    unsigned long lastConnectedAtMs,
+                                                    unsigned long lastMessageAtMs) {
+    if (socketConnected) {
+        return false;
+    }
+
+    if (nowMs - lastConnectedAtMs < MQTT_STATUS_DISCONNECT_GRACE_MS) {
+        return false;
+    }
+
+    if (nowMs - lastMessageAtMs < MQTT_STATUS_DISCONNECT_GRACE_MS) {
+        return false;
+    }
+
+    return true;
 }
 
 #endif

@@ -75,6 +75,13 @@ void test_display_refresh_policy() {
                              computeDisplayRefreshIntervalMs(false, false));
 }
 
+void test_mqtt_disconnect_status_grace_policy() {
+    TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(true, 10000, 0, 0));
+    TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(false, 10000, 7000, 0));
+    TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(false, 10000, 0, 7000));
+    TEST_ASSERT_TRUE(shouldShowMqttDisconnectedStatus(false, 10000, 1000, 1000));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_backoff_increases_and_caps);
@@ -86,5 +93,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_auto_enable_device_on_subscribed_topic_policy);
     RUN_TEST(test_sender_topic_validation_policy);
     RUN_TEST(test_display_refresh_policy);
+    RUN_TEST(test_mqtt_disconnect_status_grace_policy);
     return UNITY_END();
 }

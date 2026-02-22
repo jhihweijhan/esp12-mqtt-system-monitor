@@ -291,7 +291,7 @@ private:
 
         // MQTT 狀態 + 更新時間
         y = 222;
-        if (_mqtt.isConnected()) {
+        if (_mqtt.isConnectedForDisplay()) {
             _tft.drawString(8, y, "MQTT OK", COLOR_GREEN, COLOR_BLACK, 1);
         } else {
             _tft.drawString(8, y, "MQTT --", COLOR_RED, COLOR_BLACK, 1);
@@ -312,7 +312,7 @@ private:
         _tft.drawStringCentered(100, "Waiting", COLOR_CYAN, COLOR_BLACK, 2);
         _tft.drawStringCentered(130, "for data...", COLOR_GRAY, COLOR_BLACK, 1);
 
-        if (!_mqtt.isConnected()) {
+        if (!_mqtt.isConnectedForDisplay()) {
             _tft.drawStringCentered(160, "MQTT not connected", COLOR_RED, COLOR_BLACK, 1);
         }
 
@@ -363,7 +363,7 @@ private:
         _tft.drawStringCentered(y, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
 
         y = 222;
-        if (_mqtt.isConnected()) {
+        if (_mqtt.isConnectedForDisplay()) {
             _tft.drawString(8, y, "MQTT OK", COLOR_GREEN, COLOR_BLACK, 1);
         } else {
             _tft.drawString(8, y, "MQTT --", COLOR_RED, COLOR_BLACK, 1);

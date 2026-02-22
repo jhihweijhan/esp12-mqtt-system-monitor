@@ -106,6 +106,14 @@ public:
         return _client.connected();
     }
 
+    bool isConnectedForDisplay() {
+        unsigned long now = millis();
+        return !shouldShowMqttDisconnectedStatus(_client.connected(),
+                                                 now,
+                                                 _lastConnectedAt,
+                                                 _lastMessageAt);
+    }
+
     DeviceMetrics* getDevice(const char* hostname) {
         for (uint8_t i = 0; i < deviceCount; i++) {
             if (strcmp(devices[i].hostname, hostname) == 0) {
@@ -236,8 +244,10 @@ public:
 
         // 先標記該設備有收到訊息（heartbeat）
         // 即使 JSON 內容異常，也不應直接判定設備離線
-        dev->lastUpdate = millis();
+        unsigned long nowMs = millis();
+        dev->lastUpdate = nowMs;
         dev->online = true;
+        _lastMessageAt = nowMs;
 
         // 解析 JSON (限制解析深度和大小以避免記憶體問題)
         JsonDocument doc;
@@ -366,6 +376,8 @@ private:
     bool _strictKnownHostsOnly = false;
     unsigned long _lastRxLogAt = 0;
     uint16_t _rxMessageCount = 0;
+    unsigned long _lastConnectedAt = 0;
+    unsigned long _lastMessageAt = 0;
 
     unsigned long getOfflineTimeoutMs() const {
         if (!_configMgr) return 30000;
@@ -446,6 +458,7 @@ private:
             connected = true;
             _reconnectFailureCount = 0;
             _nextReconnectAt = 0;
+            _lastConnectedAt = millis();
             Serial.println("MQTT connected");
             subscribeConfiguredTopics();
         } else {
