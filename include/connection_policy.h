@@ -72,6 +72,10 @@ static inline bool shouldSubscribeAnySenderTopic(uint8_t topicCount) {
     return topicCount > 0;
 }
 
+static inline bool shouldAutoEnableDeviceOnSubscribedTopic(uint8_t topicCount) {
+    return topicCount > 0;
+}
+
 static inline bool isValidSenderMetricsTopic(const char* topic) {
     if (!topic) {
         return false;

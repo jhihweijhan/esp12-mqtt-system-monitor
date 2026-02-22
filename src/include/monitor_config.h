@@ -107,6 +107,10 @@ private:
 
 public:
 
+    void markDirty() {
+        _needsSave = true;
+    }
+
     void setDefaults() {
         // MQTT 預設
         strcpy(config.mqttServer, "");

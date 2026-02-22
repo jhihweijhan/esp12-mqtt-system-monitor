@@ -158,6 +158,16 @@ public:
         return false;
     }
 
+    bool isTopicInAllowlist(const char* topic) const {
+        if (!_configMgr || !topic) return false;
+        for (uint8_t i = 0; i < _configMgr->config.subscribedTopicCount; i++) {
+            if (strcmp(_configMgr->config.subscribedTopics[i], topic) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void handleMessage(char* topic, byte* payload, unsigned int length) {
         if (!isValidMqttPayloadLength(length)) {
             Serial.printf("MQTT payload rejected: %u bytes\n", length);
@@ -183,6 +193,19 @@ public:
         bool isKnown = false;
         bool enabled = false;
         getDeviceConfigState(hostname, isKnown, enabled);
+
+        if (_configMgr && isKnown && !enabled &&
+            shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount) &&
+            isTopicInAllowlist(topic)) {
+            DeviceConfig* cfg = _configMgr->getOrCreateDevice(hostname);
+            if (cfg && !cfg->enabled) {
+                cfg->enabled = true;
+                _configMgr->markDirty();
+                enabled = true;
+                Serial.printf("Auto-enable subscribed device: %s\n", hostname);
+            }
+        }
+
         if (_strictKnownHostsOnly && !isKnown) {
             return;
         }
@@ -202,7 +225,13 @@ public:
             strlcpy(dev->hostname, hostname, sizeof(dev->hostname));
 
             // 確保設定管理器也有此設備
-            _configMgr->getOrCreateDevice(hostname);
+            DeviceConfig* cfg = _configMgr->getOrCreateDevice(hostname);
+            if (cfg &&
+                shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount) &&
+                !cfg->enabled) {
+                cfg->enabled = true;
+                _configMgr->markDirty();
+            }
         }
 
         // 先標記該設備有收到訊息（heartbeat）

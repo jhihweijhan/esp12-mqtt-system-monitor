@@ -47,6 +47,12 @@ void test_sender_topic_subscription_policy() {
     TEST_ASSERT_TRUE(shouldSubscribeAnySenderTopic(8));
 }
 
+void test_auto_enable_device_on_subscribed_topic_policy() {
+    TEST_ASSERT_FALSE(shouldAutoEnableDeviceOnSubscribedTopic(0));
+    TEST_ASSERT_TRUE(shouldAutoEnableDeviceOnSubscribedTopic(1));
+    TEST_ASSERT_TRUE(shouldAutoEnableDeviceOnSubscribedTopic(8));
+}
+
 void test_sender_topic_validation_policy() {
     TEST_ASSERT_TRUE(isValidSenderMetricsTopic("sys/agents/desk/metrics"));
     TEST_ASSERT_TRUE(isValidSenderMetricsTopic("sys/agents/nas-01/metrics"));
@@ -77,6 +83,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_wifi_boot_ap_fallback_policy);
     RUN_TEST(test_mqtt_subscription_strategy_policy);
     RUN_TEST(test_sender_topic_subscription_policy);
+    RUN_TEST(test_auto_enable_device_on_subscribed_topic_policy);
     RUN_TEST(test_sender_topic_validation_policy);
     RUN_TEST(test_display_refresh_policy);
     return UNITY_END();
