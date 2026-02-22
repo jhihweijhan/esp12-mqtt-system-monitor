@@ -1,6 +1,8 @@
-# ESP12 System Monitor V2.0
+# esp12-mqtt-system-monitor
 
 ESP12F WiFi + MQTT 系統監控器，可顯示多台設備的 CPU/RAM/GPU/網路/磁碟狀態。
+
+此倉庫為韌體程式碼公開倉（submodule code repo）。開發入口主倉為私有的 `esp12-mqtt-system-monitor-dev`。
 
 ## 功能
 
@@ -139,3 +141,9 @@ src/
 - QRCode ^0.0.1
 - ESPAsyncWebServer
 - PubSubClient ^2.8
+
+## 授權
+
+- 程式碼授權：`AGPL-3.0-only`
+- 附加條款：`LICENSE-COMMONS-CLAUSE.md`（禁止商用）
+- 使用、修改、再散布時，需保留授權聲明並依 AGPL 義務公開對應原始碼
