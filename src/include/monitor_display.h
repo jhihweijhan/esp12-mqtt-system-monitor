@@ -219,20 +219,30 @@ private:
         yield();
 
         // GPU（如果有）
-        if (dev->gpuPercent > 0 || dev->gpuTemp > 0) {
+        if (shouldRenderGpuMetrics(dev->gpuPercent,
+                                   dev->gpuTemp,
+                                   dev->gpuHotspotTemp,
+                                   dev->gpuMemTemp,
+                                   dev->gpuMemPercent,
+                                   dev->hasGpuPayload)) {
             _tft.drawString(8, y, "GPU", COLOR_WHITE, COLOR_BLACK, 2);
 
-            int gpuPct = (int)dev->gpuPercent;
-            snprintf(buf, sizeof(buf), "%3d%%", gpuPct);
-            uint16_t gpuColor = (gpuPct >= th.gpuCrit) ? COLOR_RED :
-                                (gpuPct >= th.gpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
-            _tft.drawStringPadded(64, y, buf, gpuColor, COLOR_BLACK, 2, 80);
+            if (dev->hasGpuPayload) {
+                int gpuPct = (int)dev->gpuPercent;
+                snprintf(buf, sizeof(buf), "%3d%%", gpuPct);
+                uint16_t gpuColor = (gpuPct >= th.gpuCrit) ? COLOR_RED :
+                                    (gpuPct >= th.gpuWarn) ? COLOR_YELLOW : COLOR_GREEN;
+                _tft.drawStringPadded(64, y, buf, gpuColor, COLOR_BLACK, 2, 80);
 
-            int gpuTemp = (int)dev->gpuTemp;
-            snprintf(buf, sizeof(buf), "%2dC", gpuTemp);
-            uint16_t gTempColor = (gpuTemp >= th.tempCrit) ? COLOR_RED :
-                                  (gpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
-            _tft.drawStringPadded(152, y, buf, gTempColor, COLOR_BLACK, 2, 80);
+                int gpuTemp = (int)dev->gpuTemp;
+                snprintf(buf, sizeof(buf), "%2dC", gpuTemp);
+                uint16_t gTempColor = (gpuTemp >= th.tempCrit) ? COLOR_RED :
+                                      (gpuTemp >= th.tempWarn) ? COLOR_YELLOW : COLOR_CYAN;
+                _tft.drawStringPadded(152, y, buf, gTempColor, COLOR_BLACK, 2, 80);
+            } else {
+                _tft.drawStringPadded(64, y, "--%", COLOR_GRAY, COLOR_BLACK, 2, 80);
+                _tft.drawStringPadded(152, y, "--C", COLOR_GRAY, COLOR_BLACK, 2, 80);
+            }
 
             y += 32;  // size 2 字高 32px，不能用 24 否則會蓋到下一行
 
@@ -266,8 +276,12 @@ private:
             }
 
             // GPU 記憶體
-            snprintf(buf, sizeof(buf), "VRAM: %d%%", (int)dev->gpuMemPercent);
-            _tft.drawStringPadded(8, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 120);
+            if (dev->hasGpuPayload) {
+                snprintf(buf, sizeof(buf), "VRAM: %d%%", (int)dev->gpuMemPercent);
+                _tft.drawStringPadded(8, y, buf, COLOR_GRAY, COLOR_BLACK, 1, 120);
+            } else {
+                _tft.drawStringPadded(8, y, "VRAM: --", COLOR_GRAY, COLOR_BLACK, 1, 120);
+            }
             y += 16;
         }
 

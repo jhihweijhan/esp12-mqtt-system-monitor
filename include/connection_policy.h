@@ -146,6 +146,21 @@ static inline bool shouldMarkDeviceOffline(bool mqttConnected,
     return hasElapsedIntervalMs(nowMs, lastUpdateMs, offlineTimeoutMs);
 }
 
+static inline bool shouldRenderGpuMetrics(float gpuPercent,
+                                          float gpuTemp,
+                                          float gpuHotspotTemp,
+                                          float gpuMemTemp,
+                                          float gpuMemPercent,
+                                          bool hasGpuPayload) {
+    (void)gpuPercent;
+    (void)gpuTemp;
+    (void)gpuHotspotTemp;
+    (void)gpuMemTemp;
+    (void)gpuMemPercent;
+    (void)hasGpuPayload;
+    return true;
+}
+
 static inline bool isValidSenderMetricsTopic(const char* topic) {
     if (!topic) {
         return false;

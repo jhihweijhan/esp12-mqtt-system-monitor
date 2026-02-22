@@ -32,6 +32,7 @@ struct DeviceMetrics {
     float gpuHotspotTemp;     // 熱點/junction 溫度
     float gpuMemTemp;         // VRAM 溫度
     float gpuMemPercent;
+    bool hasGpuPayload;
 
     // 網路 (Mbps)
     float netRxMbps;
@@ -309,6 +310,7 @@ public:
 
         // GPU
         if (_messageDoc["gpu"].is<JsonObject>()) {
+            dev->hasGpuPayload = true;
             dev->gpuPercent = _messageDoc["gpu"]["usage_percent"] | 0.0f;
             dev->gpuTemp = _messageDoc["gpu"]["temperature_celsius"] | 0.0f;
             dev->gpuHotspotTemp = 0.0f;
@@ -324,6 +326,7 @@ public:
                 }
             }
         } else {
+            dev->hasGpuPayload = false;
             dev->gpuPercent = 0.0f;
             dev->gpuTemp = 0.0f;
             dev->gpuHotspotTemp = 0.0f;

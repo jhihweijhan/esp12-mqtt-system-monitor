@@ -132,6 +132,13 @@ void test_device_offline_decision_policy() {
     TEST_ASSERT_FALSE(shouldMarkDeviceOffline(true, 24000UL, 10000UL, 20000UL, 20000UL));
 }
 
+void test_gpu_render_policy() {
+    TEST_ASSERT_TRUE(shouldRenderGpuMetrics(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, true));
+    TEST_ASSERT_TRUE(shouldRenderGpuMetrics(0.0f, 38.0f, 0.0f, 0.0f, 0.0f, false));
+    TEST_ASSERT_TRUE(shouldRenderGpuMetrics(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, false));
+    TEST_ASSERT_TRUE(shouldRenderGpuMetrics(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_backoff_increases_and_caps);
@@ -151,5 +158,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_auto_enable_fallback_device_policy);
     RUN_TEST(test_elapsed_interval_policy);
     RUN_TEST(test_device_offline_decision_policy);
+    RUN_TEST(test_gpu_render_policy);
     return UNITY_END();
 }
