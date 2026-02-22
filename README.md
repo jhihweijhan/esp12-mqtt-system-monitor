@@ -2,7 +2,15 @@
 
 ESP12F WiFi + MQTT 系統監控器，可顯示多台設備的 CPU/RAM/GPU/網路/磁碟狀態。
 
-此倉庫為韌體程式碼公開倉（submodule code repo）。開發入口主倉為私有的 `esp12-mqtt-system-monitor-dev`。
+此倉庫為韌體程式碼公開倉（submodule code repo）。
+
+## 倉庫關係（易讀版）
+
+- 主後端（main repo）：`https://gitlab.com/krel.jhan/esp12-mqtt-system-monitor-dev`
+- ESP 前端（Web/Sender repo）：`https://gitlab.com/krel.jhan/hwmonitor-mqtt-dev`
+- 本倉庫（sub repo）：`https://github.com/jhihweijhan/esp12-mqtt-system-monitor`
+
+開發時請從 main repo 啟動，再進入 `code/esp12-mqtt-system-monitor` 操作本韌體子模組。
 
 ## 功能
 
@@ -54,10 +62,10 @@ ESP12F WiFi + MQTT 系統監控器，可顯示多台設備的 CPU/RAM/GPU/網路
 
 ### 搭配 Sender 專案（Docker）
 
-若要使用對應的 sender 專案（`/home/jwj/Workspace/Toys/hwmonitor-mqtt`），建議使用 ESP 專用容器：
+若要使用對應的 ESP 前端/Sender 專案（`hwmonitor-mqtt-dev`），建議在該專案使用 ESP 專用容器：
 
 ```bash
-cd /home/jwj/Workspace/Toys/hwmonitor-mqtt
+cd /path/to/hwmonitor-mqtt-dev
 docker compose --profile esp-agent up -d --build
 docker compose logs -f sys_agent_esp
 ```
