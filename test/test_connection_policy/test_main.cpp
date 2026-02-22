@@ -82,6 +82,21 @@ void test_mqtt_disconnect_status_grace_policy() {
     TEST_ASSERT_TRUE(shouldShowMqttDisconnectedStatus(false, 10000, 1000, 1000));
 }
 
+void test_mqtt_socket_timeout_policy() {
+    TEST_ASSERT_EQUAL_UINT16(1, sanitizeMqttSocketTimeoutSec(0));
+    TEST_ASSERT_EQUAL_UINT16(1, sanitizeMqttSocketTimeoutSec(1));
+    TEST_ASSERT_EQUAL_UINT16(2, sanitizeMqttSocketTimeoutSec(2));
+    TEST_ASSERT_EQUAL_UINT16(5, sanitizeMqttSocketTimeoutSec(5));
+    TEST_ASSERT_EQUAL_UINT16(5, sanitizeMqttSocketTimeoutSec(9));
+}
+
+void test_wifi_reconnect_retry_policy() {
+    TEST_ASSERT_FALSE(shouldAttemptWifiReconnect(1000, 1000));
+    TEST_ASSERT_FALSE(shouldAttemptWifiReconnect(5999, 1000));
+    TEST_ASSERT_TRUE(shouldAttemptWifiReconnect(6000, 1000));
+    TEST_ASSERT_TRUE(shouldAttemptWifiReconnect(7000, 1000, 6000));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_backoff_increases_and_caps);
@@ -94,5 +109,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_sender_topic_validation_policy);
     RUN_TEST(test_display_refresh_policy);
     RUN_TEST(test_mqtt_disconnect_status_grace_policy);
+    RUN_TEST(test_mqtt_socket_timeout_policy);
+    RUN_TEST(test_wifi_reconnect_retry_policy);
     return UNITY_END();
 }

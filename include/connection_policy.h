@@ -8,6 +8,11 @@
 static const uint32_t MQTT_RECONNECT_BASE_MS = 1000UL;
 static const uint32_t MQTT_RECONNECT_MAX_MS = 60000UL;
 static const size_t MQTT_MAX_PAYLOAD_BYTES = 8192U;
+static const uint16_t MQTT_CONNECT_SOCKET_TIMEOUT_SEC = 2U;
+static const uint16_t MQTT_SOCKET_TIMEOUT_MIN_SEC = 1U;
+static const uint16_t MQTT_SOCKET_TIMEOUT_MAX_SEC = 5U;
+static const uint16_t MQTT_KEEP_ALIVE_SEC = 15U;
+static const uint32_t WIFI_RECONNECT_RETRY_MS = 5000UL;
 static const size_t WIFI_MAX_SSID_LENGTH = 32U;
 static const size_t WIFI_MAX_PASSWORD_LENGTH = 63U;
 static const uint8_t MAX_WIFI_RECOVERY_CYCLES_WITH_SAVED_CONFIG = 12U;
@@ -44,6 +49,22 @@ static inline bool isValidMqttPort(uint16_t port) {
 
 static inline bool isValidMqttPayloadLength(size_t payloadLen) {
     return payloadLen > 0 && payloadLen <= MQTT_MAX_PAYLOAD_BYTES;
+}
+
+static inline uint16_t sanitizeMqttSocketTimeoutSec(uint16_t timeoutSec) {
+    if (timeoutSec < MQTT_SOCKET_TIMEOUT_MIN_SEC) {
+        return MQTT_SOCKET_TIMEOUT_MIN_SEC;
+    }
+    if (timeoutSec > MQTT_SOCKET_TIMEOUT_MAX_SEC) {
+        return MQTT_SOCKET_TIMEOUT_MAX_SEC;
+    }
+    return timeoutSec;
+}
+
+static inline bool shouldAttemptWifiReconnect(unsigned long nowMs,
+                                              unsigned long lastWifiReconnectAtMs,
+                                              uint32_t retryIntervalMs = WIFI_RECONNECT_RETRY_MS) {
+    return (nowMs - lastWifiReconnectAtMs) >= retryIntervalMs;
 }
 
 static inline bool shouldEnterApModeAfterBootRetries(bool hasSavedWiFiConfig,

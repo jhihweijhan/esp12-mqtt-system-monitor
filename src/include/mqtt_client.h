@@ -63,6 +63,11 @@ public:
     }
 
     void connect() {
+        if (!_configMgr) {
+            Serial.println("MQTT config manager unavailable");
+            return;
+        }
+
         if (strlen(_configMgr->config.mqttServer) == 0) {
             Serial.println("MQTT server not configured");
             return;
@@ -70,8 +75,13 @@ public:
 
         _client.setServer(_configMgr->config.mqttServer, _configMgr->config.mqttPort);
         _client.setCallback(mqttCallback);
+        _client.setKeepAlive(MQTT_KEEP_ALIVE_SEC);
+        _client.setSocketTimeout(sanitizeMqttSocketTimeoutSec(MQTT_CONNECT_SOCKET_TIMEOUT_SEC));
         // 限制到 8KB，兼顧大型 payload 與 ESP8266 記憶體壓力
-        _client.setBufferSize(MQTT_MAX_PAYLOAD_BYTES);
+        if (!_client.setBufferSize(MQTT_MAX_PAYLOAD_BYTES)) {
+            Serial.printf("MQTT buffer set failed, keep default buffer (%u)\n",
+                          (unsigned int)_client.getBufferSize());
+        }
 
         _reconnectFailureCount = 0;
         _nextReconnectAt = 0;
@@ -79,10 +89,19 @@ public:
     }
 
     void loop() {
+        if (!_configMgr) return;
         if (strlen(_configMgr->config.mqttServer) == 0) return;
 
-        if (!_client.connected()) {
-            unsigned long now = millis();
+        unsigned long now = millis();
+
+        if (WiFi.status() != WL_CONNECTED) {
+            connected = false;
+            if (shouldAttemptWifiReconnect(now, _lastWifiReconnectAt)) {
+                _lastWifiReconnectAt = now;
+                Serial.println("WiFi disconnected, trigger reconnect");
+                WiFi.reconnect();
+            }
+        } else if (!_client.connected()) {
             connected = false;
             if (_nextReconnectAt == 0 || (long)(now - _nextReconnectAt) >= 0) {
                 reconnect();
@@ -92,7 +111,6 @@ public:
         }
 
         // 檢查設備離線狀態（依設定檔 timeout 秒數）
-        unsigned long now = millis();
         unsigned long offlineTimeoutMs = getOfflineTimeoutMs();
         for (uint8_t i = 0; i < deviceCount; i++) {
             if (devices[i].online && (now - devices[i].lastUpdate > offlineTimeoutMs)) {
@@ -250,8 +268,8 @@ public:
         _lastMessageAt = nowMs;
 
         // 解析 JSON (限制解析深度和大小以避免記憶體問題)
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, payload, length);
+        _messageDoc.clear();
+        DeserializationError error = deserializeJson(_messageDoc, payload, length);
         if (error) {
             Serial.printf("JSON parse failed [%s, %u bytes]: %s\n",
                           hostname, length, error.c_str());
@@ -260,36 +278,36 @@ public:
         yield();  // 讓 WDT 不會超時
 
         // CPU (agent_sender_async.py: cpu.percent_total)
-        dev->cpuPercent = doc["cpu"]["percent_total"] | 0.0f;
+        dev->cpuPercent = _messageDoc["cpu"]["percent_total"] | 0.0f;
 
         // RAM (agent_sender_async.py: memory.ram.percent/used/total)
-        dev->ramPercent = doc["memory"]["ram"]["percent"] | 0.0f;
+        dev->ramPercent = _messageDoc["memory"]["ram"]["percent"] | 0.0f;
         // 將 bytes 轉換為 GB
-        float ramUsedBytes = doc["memory"]["ram"]["used"] | 0.0f;
-        float ramTotalBytes = doc["memory"]["ram"]["total"] | 0.0f;
+        float ramUsedBytes = _messageDoc["memory"]["ram"]["used"] | 0.0f;
+        float ramTotalBytes = _messageDoc["memory"]["ram"]["total"] | 0.0f;
         dev->ramUsedGB = ramUsedBytes / (1024.0f * 1024.0f * 1024.0f);
         dev->ramTotalGB = ramTotalBytes / (1024.0f * 1024.0f * 1024.0f);
 
         // GPU
-        if (doc["gpu"].is<JsonObject>()) {
-            dev->gpuPercent = doc["gpu"]["usage_percent"] | 0.0f;
-            dev->gpuTemp = doc["gpu"]["temperature_celsius"] | 0.0f;
+        if (_messageDoc["gpu"].is<JsonObject>()) {
+            dev->gpuPercent = _messageDoc["gpu"]["usage_percent"] | 0.0f;
+            dev->gpuTemp = _messageDoc["gpu"]["temperature_celsius"] | 0.0f;
             dev->gpuHotspotTemp = 0.0f;
             dev->gpuMemTemp = 0.0f;
 
             // memory_percent: 直接讀取或從 used/total 計算
-            dev->gpuMemPercent = doc["gpu"]["memory_percent"] | 0.0f;
+            dev->gpuMemPercent = _messageDoc["gpu"]["memory_percent"] | 0.0f;
             if (dev->gpuMemPercent == 0.0f) {
-                float memUsed = doc["gpu"]["memory_used_mb"] | 0.0f;
-                float memTotal = doc["gpu"]["memory_total_mb"] | 0.0f;
+                float memUsed = _messageDoc["gpu"]["memory_used_mb"] | 0.0f;
+                float memTotal = _messageDoc["gpu"]["memory_total_mb"] | 0.0f;
                 if (memTotal > 0) {
                     dev->gpuMemPercent = (memUsed / memTotal) * 100.0f;
                 }
             }
 
             // 解析 temperatures 陣列 (GPU/EDG, JCT/HSP, MEM/VRM)
-            if (doc["gpu"]["temperatures"].is<JsonArray>()) {
-                JsonArray temps = doc["gpu"]["temperatures"].as<JsonArray>();
+            if (_messageDoc["gpu"]["temperatures"].is<JsonArray>()) {
+                JsonArray temps = _messageDoc["gpu"]["temperatures"].as<JsonArray>();
                 for (JsonVariant t : temps) {
                     const char* label = t["label"] | "";
                     float current = t["current"] | 0.0f;
@@ -313,8 +331,8 @@ public:
 
         // 網路 (agent_sender_async.py: network_io.total.rate.rx_bytes_per_s/tx_bytes_per_s)
         // 將 bytes/s 轉換為 Mbps (除以 1024*1024/8 = 131072)
-        float netRxBps = doc["network_io"]["total"]["rate"]["rx_bytes_per_s"] | 0.0f;
-        float netTxBps = doc["network_io"]["total"]["rate"]["tx_bytes_per_s"] | 0.0f;
+        float netRxBps = _messageDoc["network_io"]["total"]["rate"]["rx_bytes_per_s"] | 0.0f;
+        float netTxBps = _messageDoc["network_io"]["total"]["rate"]["tx_bytes_per_s"] | 0.0f;
         dev->netRxMbps = (netRxBps * 8.0f) / (1024.0f * 1024.0f);
         dev->netTxMbps = (netTxBps * 8.0f) / (1024.0f * 1024.0f);
 
@@ -322,7 +340,7 @@ public:
         // 取所有磁碟的加總，轉換為 MB/s
         float totalReadBps = 0.0f;
         float totalWriteBps = 0.0f;
-        JsonObject diskIo = doc["disk_io"].as<JsonObject>();
+        JsonObject diskIo = _messageDoc["disk_io"].as<JsonObject>();
         for (JsonPair kv : diskIo) {
             JsonObject disk = kv.value().as<JsonObject>();
             if (disk["rate"].is<JsonObject>()) {
@@ -335,8 +353,8 @@ public:
 
         // CPU 溫度 (agent_sender_async.py: temperatures.k10temp[0].current 或 coretemp[0].current)
         dev->cpuTemp = 0.0f;
-        if (doc["temperatures"].is<JsonObject>()) {
-            JsonObject temps = doc["temperatures"].as<JsonObject>();
+        if (_messageDoc["temperatures"].is<JsonObject>()) {
+            JsonObject temps = _messageDoc["temperatures"].as<JsonObject>();
             // 只檢查常見的 CPU 溫度感測器，避免遍歷太多
             const char* cpuSensors[] = {"k10temp", "coretemp", "cpu_thermal"};
             for (int i = 0; i < 3; i++) {
@@ -373,11 +391,13 @@ private:
     MonitorConfigManager* _configMgr;
     unsigned long _nextReconnectAt = 0;
     uint8_t _reconnectFailureCount = 0;
+    unsigned long _lastWifiReconnectAt = 0;
     bool _strictKnownHostsOnly = false;
     unsigned long _lastRxLogAt = 0;
     uint16_t _rxMessageCount = 0;
     unsigned long _lastConnectedAt = 0;
     unsigned long _lastMessageAt = 0;
+    JsonDocument _messageDoc;
 
     unsigned long getOfflineTimeoutMs() const {
         if (!_configMgr) return 30000;
@@ -443,16 +463,19 @@ private:
                       _configMgr->config.mqttServer,
                       _configMgr->config.mqttPort);
 
-        String clientId = "ESP12-" + String(random(0xffff), HEX);
+        char clientId[16];
+        snprintf(clientId, sizeof(clientId), "ESP12-%04X", (unsigned int)random(0x10000));
         bool success;
 
+        yield();
         if (strlen(_configMgr->config.mqttUser) > 0) {
-            success = _client.connect(clientId.c_str(),
+            success = _client.connect(clientId,
                                       _configMgr->config.mqttUser,
                                       _configMgr->config.mqttPass);
         } else {
-            success = _client.connect(clientId.c_str());
+            success = _client.connect(clientId);
         }
+        yield();
 
         if (success) {
             connected = true;

@@ -2,6 +2,7 @@
 #define MONITOR_DISPLAY_H
 
 #include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include "tft_driver.h"
 #include "ui_components.h"
 #include "mqtt_client.h"
@@ -140,6 +141,13 @@ private:
     // 快取上次繪製的值，避免不必要的重繪（size 1 逐像素繪製很慢）
     int _lastGpuHspTemp = -999;
     int _lastGpuMemTemp = -999;
+
+    void drawLocalIpCentered(int16_t y, uint16_t color) {
+        IPAddress ip = WiFi.localIP();
+        char ipBuf[16];
+        snprintf(ipBuf, sizeof(ipBuf), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+        _tft.drawStringCentered(y, ipBuf, color, COLOR_BLACK, 1);
+    }
 
     void showDevice(DeviceMetrics* dev) {
         // 取得設備別名
@@ -286,8 +294,7 @@ private:
         // 底部狀態列
         // IP 位址
         y = 204;
-        String ip = WiFi.localIP().toString();
-        _tft.drawStringCentered(y, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
+        drawLocalIpCentered(y, COLOR_YELLOW);
 
         // MQTT 狀態 + 更新時間
         y = 222;
@@ -317,8 +324,7 @@ private:
         }
 
         // 底部顯示 IP
-        String ip = WiFi.localIP().toString();
-        _tft.drawStringCentered(204, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
+        drawLocalIpCentered(204, COLOR_YELLOW);
     }
 
     void showOfflineDevice(const char* hostname) {
@@ -359,8 +365,7 @@ private:
         _tft.drawStringPadded(128, y, "W:--", COLOR_GRAY, COLOR_BLACK, 1, 78);
 
         y = 204;
-        String ip = WiFi.localIP().toString();
-        _tft.drawStringCentered(y, ip.c_str(), COLOR_YELLOW, COLOR_BLACK, 1);
+        drawLocalIpCentered(y, COLOR_YELLOW);
 
         y = 222;
         if (_mqtt.isConnectedForDisplay()) {
