@@ -15,6 +15,12 @@ MonitorConfigManager monitorConfig;
 MQTTClient mqttClient;
 MonitorDisplay* monitorDisplay = nullptr;
 
+void onMqttMetricsReceived(const char* hostname) {
+    if (monitorDisplay) {
+        monitorDisplay->notifyMetricsUpdated(hostname);
+    }
+}
+
 enum AppMode {
     MODE_AP_SETUP,      // AP 模式設定 WiFi
     MODE_MONITOR        // 監控模式
@@ -38,11 +44,23 @@ enum StartupState {
 StartupState startupState = STARTUP_INIT;
 uint8_t savedConnectAttempts = 0;
 uint8_t sdkConnectAttempts = 0;
+uint8_t startupRecoveryCycles = 0;
 unsigned long startupNextAt = 0;
 bool hasSavedWiFiConfig = false;
+bool wifiStorageReady = false;
 
 const uint8_t MAX_SAVED_CONNECT_ATTEMPTS = 3;
 const uint8_t MAX_SDK_CONNECT_ATTEMPTS = 2;
+
+void scheduleStartupRetryCycle() {
+    startupRecoveryCycles++;
+    savedConnectAttempts = 0;
+    sdkConnectAttempts = 0;
+    startupNextAt = millis() + 2000;
+    startupState = STARTUP_TRY_SAVED_DELAY;
+    Serial.printf("WiFi retries exhausted, cycle %u/%u\n",
+                  startupRecoveryCycles, MAX_WIFI_RECOVERY_CYCLES_WITH_SAVED_CONFIG);
+}
 
 // 顯示 AP 模式畫面
 void showAPScreen() {
@@ -99,6 +117,7 @@ void startMonitorMode() {
     currentMode = MODE_MONITOR;
 
     mqttClient.begin(monitorConfig);
+    mqttClient.onMetricsReceived = onMqttMetricsReceived;
     if (strlen(monitorConfig.config.mqttServer) > 0) {
         showMQTTConnectingScreen();
         mqttClient.connect();
@@ -163,6 +182,7 @@ void processStartup() {
         case STARTUP_TRY_SAVED_WAIT: {
             WiFiManager::ConnectResult result = wifiMgr.pollConnect();
             if (result == WiFiManager::CONNECT_SUCCESS) {
+                startupRecoveryCycles = 0;
                 showConnectedScreen();
                 startupNextAt = millis() + 2000;
                 startupState = STARTUP_WIFI_CONNECTED_DELAY;
@@ -185,7 +205,13 @@ void processStartup() {
 
         case STARTUP_TRY_SDK_START:
             if (sdkConnectAttempts >= MAX_SDK_CONNECT_ATTEMPTS) {
-                startupState = STARTUP_ENTER_AP;
+                if (shouldEnterApModeAfterBootRetries(hasSavedWiFiConfig,
+                                                     wifiStorageReady,
+                                                     startupRecoveryCycles)) {
+                    startupState = STARTUP_ENTER_AP;
+                } else {
+                    scheduleStartupRetryCycle();
+                }
                 break;
             }
             showConnectingScreen();
@@ -193,7 +219,13 @@ void processStartup() {
             Serial.printf("WiFi connect attempt %u/%u (from SDK)\n",
                           sdkConnectAttempts, MAX_SDK_CONNECT_ATTEMPTS);
             if (!wifiMgr.startConnectStoredWiFi()) {
-                startupState = STARTUP_ENTER_AP;
+                if (shouldEnterApModeAfterBootRetries(hasSavedWiFiConfig,
+                                                     wifiStorageReady,
+                                                     startupRecoveryCycles)) {
+                    startupState = STARTUP_ENTER_AP;
+                } else {
+                    scheduleStartupRetryCycle();
+                }
                 break;
             }
             startupState = STARTUP_TRY_SDK_WAIT;
@@ -202,6 +234,7 @@ void processStartup() {
         case STARTUP_TRY_SDK_WAIT: {
             WiFiManager::ConnectResult result = wifiMgr.pollConnect();
             if (result == WiFiManager::CONNECT_SUCCESS) {
+                startupRecoveryCycles = 0;
                 showConnectedScreen();
                 startupNextAt = millis() + 2000;
                 startupState = STARTUP_WIFI_CONNECTED_DELAY;
@@ -210,7 +243,13 @@ void processStartup() {
                     startupNextAt = millis() + 1000;
                     startupState = STARTUP_TRY_SDK_DELAY;
                 } else {
-                    startupState = STARTUP_ENTER_AP;
+                    if (shouldEnterApModeAfterBootRetries(hasSavedWiFiConfig,
+                                                         wifiStorageReady,
+                                                         startupRecoveryCycles)) {
+                        startupState = STARTUP_ENTER_AP;
+                    } else {
+                        scheduleStartupRetryCycle();
+                    }
                 }
             }
             break;
@@ -257,11 +296,12 @@ void setup() {
     monitorConfig.load();
 
     // 啟動非阻塞連線流程
+    wifiStorageReady = wifiMgr.isStorageReady();
     hasSavedWiFiConfig = wifiMgr.loadConfig();
     if (hasSavedWiFiConfig) {
         showConnectingScreen();
         startupState = STARTUP_TRY_SAVED_START;
-    } else if (!wifiMgr.isStorageReady()) {
+    } else if (!wifiStorageReady) {
         Serial.println("LittleFS unavailable, cannot load /wifi.json");
         showConnectingScreen();
         startupState = STARTUP_TRY_SDK_START;
@@ -298,5 +338,5 @@ void loop() {
     }
 
     yield();
-    delay(10);
+    delay(2);
 }

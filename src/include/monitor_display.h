@@ -15,6 +15,18 @@ public:
     void begin() {
         _currentDevice = 0;
         _lastSwitch = millis();
+        _pendingVisibleUpdate = true;
+    }
+
+    void notifyMetricsUpdated(const char* hostname) {
+        if (!hostname || hostname[0] == '\0') {
+            _pendingVisibleUpdate = true;
+            return;
+        }
+        DeviceMetrics* current = _mqtt.getOnlineDevice(_currentDevice);
+        if (!current || strcmp(current->hostname, hostname) == 0) {
+            _pendingVisibleUpdate = true;
+        }
     }
 
     void loop() {
@@ -38,10 +50,12 @@ public:
             }
         }
 
-        // 每 1000ms 更新顯示
-        if (now - _lastRefresh > 1000) {
+        // 事件驅動快刷 + 閒置慢刷
+        uint16_t refreshInterval = computeDisplayRefreshIntervalMs(_pendingVisibleUpdate, _forceRedraw);
+        if (now - _lastRefresh > refreshInterval) {
             _lastRefresh = now;
             refresh();
+            _pendingVisibleUpdate = false;
         }
     }
 
@@ -120,6 +134,7 @@ private:
     unsigned long _lastSwitch = 0;
     unsigned long _lastRefresh = 0;
     bool _forceRedraw = true;
+    bool _pendingVisibleUpdate = false;
     char _lastHostname[32] = "";
 
     // 快取上次繪製的值，避免不必要的重繪（size 1 逐像素繪製很慢）
