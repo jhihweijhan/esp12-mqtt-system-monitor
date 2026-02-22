@@ -29,7 +29,7 @@ main.cpp                    Entry point, mode switching (AP_SETUP / MONITOR)
     ↓
 ├── TFTDriver              Low-level SPI display driver (GPIO: CS=16, DC=0, RST=4, BL=5)
 ├── WiFiManager            WiFi connection + AP mode management, config in LittleFS
-├── MQTTClient             PubSubClient wrapper, subscribes to sys/agents/+/metrics
+├── MQTTClient             PubSubClient wrapper, subscribes only configured sender topic allowlist
 ├── MonitorConfigManager   JSON config persistence (devices, thresholds, MQTT settings)
 ├── MonitorDisplay         Display rendering with carousel logic
 └── WebServerManager       ESPAsyncWebServer routes (/api/config, /api/status)
@@ -37,11 +37,12 @@ main.cpp                    Entry point, mode switching (AP_SETUP / MONITOR)
 
 ### Data Flow
 
-1. `MQTTClient` receives JSON from `sys/agents/{hostname}/metrics`
+1. `MQTTClient` receives JSON from selected sender topics (`sys/agents/{hostname}/metrics`)
 2. Parses into `DeviceMetrics` struct (CPU, RAM, GPU, network, disk)
 3. `MonitorDisplay::loop()` renders current device every 500ms
 4. Carousel switches devices based on `displayTime` setting
 5. Only `enabled` devices participate in carousel
+6. Topic subscription source is `mqtt.subscribedTopics` (empty list means subscribe none)
 
 ### Key Patterns
 

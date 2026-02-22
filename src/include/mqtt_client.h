@@ -144,13 +144,25 @@ public:
         return true;  // 預設啟用（新設備）
     }
 
+    bool getDeviceConfigState(const char* hostname, bool& isKnown, bool& enabled) {
+        isKnown = false;
+        enabled = false;
+        if (!_configMgr) return false;
+        for (uint8_t i = 0; i < _configMgr->config.deviceCount; i++) {
+            if (strcmp(_configMgr->config.devices[i].hostname, hostname) == 0) {
+                isKnown = true;
+                enabled = _configMgr->config.devices[i].enabled;
+                return true;
+            }
+        }
+        return false;
+    }
+
     void handleMessage(char* topic, byte* payload, unsigned int length) {
         if (!isValidMqttPayloadLength(length)) {
             Serial.printf("MQTT payload rejected: %u bytes\n", length);
             return;
         }
-
-        Serial.printf("MQTT msg: %s (%u bytes)\n", topic, length);
 
         // 解析 topic 取得 hostname: sys/agents/{hostname}/metrics
         // 找到第二個 '/' 後的內容（hostname）
@@ -167,6 +179,16 @@ public:
         if (len >= sizeof(hostname)) len = sizeof(hostname) - 1;
         strncpy(hostname, start, len);
         hostname[len] = '\0';
+
+        bool isKnown = false;
+        bool enabled = false;
+        getDeviceConfigState(hostname, isKnown, enabled);
+        if (_strictKnownHostsOnly && !isKnown) {
+            return;
+        }
+        if (isKnown && !enabled) {
+            return;
+        }
 
         // 取得或建立設備
         DeviceMetrics* dev = getDevice(hostname);
@@ -290,8 +312,16 @@ public:
         }
         yield();  // 讓 WDT 不會超時
 
-        Serial.printf("Recv %s: CPU=%.0f%% RAM=%.0f%%\n",
-                      hostname, dev->cpuPercent, dev->ramPercent);
+        _rxMessageCount++;
+        unsigned long now = millis();
+        if (now - _lastRxLogAt >= MQTT_RX_LOG_INTERVAL_MS) {
+            Serial.printf("MQTT rx: %u msgs / %ums, last=%s\n",
+                          _rxMessageCount,
+                          (unsigned int)MQTT_RX_LOG_INTERVAL_MS,
+                          hostname);
+            _rxMessageCount = 0;
+            _lastRxLogAt = now;
+        }
 
         if (onMetricsReceived) {
             onMetricsReceived(hostname);
@@ -304,6 +334,9 @@ private:
     MonitorConfigManager* _configMgr;
     unsigned long _nextReconnectAt = 0;
     uint8_t _reconnectFailureCount = 0;
+    bool _strictKnownHostsOnly = false;
+    unsigned long _lastRxLogAt = 0;
+    uint16_t _rxMessageCount = 0;
 
     unsigned long getOfflineTimeoutMs() const {
         if (!_configMgr) return 30000;
@@ -316,6 +349,51 @@ private:
     static void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (_mqttInstance) {
             _mqttInstance->handleMessage(topic, payload, length);
+        }
+    }
+
+    void subscribeConfiguredTopics() {
+        _strictKnownHostsOnly = false;
+        if (!_configMgr) return;
+
+        char uniqueTopics[MAX_SUBSCRIBED_TOPICS][64];
+        uint8_t uniqueCount = 0;
+
+        for (uint8_t i = 0; i < _configMgr->config.subscribedTopicCount; i++) {
+            const char* topic = _configMgr->config.subscribedTopics[i];
+            if (!isValidSenderMetricsTopic(topic)) {
+                Serial.printf("Skip invalid sender topic: %s\n", topic);
+                continue;
+            }
+
+            bool duplicate = false;
+            for (uint8_t j = 0; j < uniqueCount; j++) {
+                if (strcmp(uniqueTopics[j], topic) == 0) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+
+            if (uniqueCount >= MAX_SUBSCRIBED_TOPICS) {
+                Serial.println("Skip sender topic: allowlist full");
+                break;
+            }
+            strlcpy(uniqueTopics[uniqueCount], topic, sizeof(uniqueTopics[uniqueCount]));
+            uniqueCount++;
+        }
+
+        if (!shouldSubscribeAnySenderTopic(uniqueCount)) {
+            Serial.println("No sender topics configured, skip MQTT subscriptions");
+            return;
+        }
+
+        for (uint8_t i = 0; i < uniqueCount; i++) {
+            if (_client.subscribe(uniqueTopics[i])) {
+                Serial.printf("Subscribed sender topic: %s\n", uniqueTopics[i]);
+            } else {
+                Serial.printf("Subscribe failed: %s\n", uniqueTopics[i]);
+            }
         }
     }
 
@@ -340,8 +418,7 @@ private:
             _reconnectFailureCount = 0;
             _nextReconnectAt = 0;
             Serial.println("MQTT connected");
-            _client.subscribe(_configMgr->config.mqttTopic);
-            Serial.printf("Subscribed: %s\n", _configMgr->config.mqttTopic);
+            subscribeConfiguredTopics();
         } else {
             connected = false;
             if (_reconnectFailureCount < 250) {

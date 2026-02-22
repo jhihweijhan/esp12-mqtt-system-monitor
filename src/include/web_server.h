@@ -136,6 +136,38 @@ public:
             doc["mqtt"]["port"] = cfg.mqttPort;
             doc["mqtt"]["topic"] = cfg.mqttTopic;
             doc["mqtt"]["user"] = cfg.mqttUser;
+            JsonArray subscribedTopics = doc["mqtt"]["subscribedTopics"].to<JsonArray>();
+            for (uint8_t i = 0; i < cfg.subscribedTopicCount; i++) {
+                subscribedTopics.add(cfg.subscribedTopics[i]);
+            }
+            JsonArray availableTopics = doc["mqtt"]["availableTopics"].to<JsonArray>();
+            char knownHosts[MAX_DEVICES + MAX_METRICS_DEVICES][32];
+            uint8_t knownHostCount = 0;
+
+            auto addKnownHost = [&](const char* hostname) {
+                if (!hostname || hostname[0] == '\0') return;
+                for (uint8_t i = 0; i < knownHostCount; i++) {
+                    if (strcmp(knownHosts[i], hostname) == 0) return;
+                }
+                if (knownHostCount >= (MAX_DEVICES + MAX_METRICS_DEVICES)) return;
+                strlcpy(knownHosts[knownHostCount], hostname, sizeof(knownHosts[knownHostCount]));
+                knownHostCount++;
+            };
+
+            for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+                addKnownHost(cfg.devices[i].hostname);
+            }
+            if (_mqtt) {
+                for (uint8_t i = 0; i < _mqtt->deviceCount; i++) {
+                    addKnownHost(_mqtt->devices[i].hostname);
+                }
+            }
+
+            for (uint8_t i = 0; i < knownHostCount; i++) {
+                char topicBuf[96];
+                snprintf(topicBuf, sizeof(topicBuf), "sys/agents/%s/metrics", knownHosts[i]);
+                availableTopics.add(topicBuf);
+            }
             // 不回傳密碼
 
             // 設備
@@ -207,6 +239,37 @@ public:
                     const char* pass = mqtt["pass"] | "";
                     if (strlen(pass) > 0) {
                         strlcpy(cfg.mqttPass, pass, sizeof(cfg.mqttPass));
+                    }
+
+                    cfg.subscribedTopicCount = 0;
+                    if (mqtt["subscribedTopics"].is<JsonArray>()) {
+                        JsonArray topics = mqtt["subscribedTopics"].as<JsonArray>();
+                        for (JsonVariant topicVar : topics) {
+                            if (cfg.subscribedTopicCount >= MAX_SUBSCRIBED_TOPICS) {
+                                request->send(400, "application/json", "{\"success\":false,\"message\":\"too many subscribed topics\"}");
+                                return;
+                            }
+
+                            const char* topicValue = topicVar | "";
+                            if (!isValidSenderMetricsTopic(topicValue)) {
+                                request->send(400, "application/json", "{\"success\":false,\"message\":\"invalid sender topic\"}");
+                                return;
+                            }
+
+                            bool duplicate = false;
+                            for (uint8_t i = 0; i < cfg.subscribedTopicCount; i++) {
+                                if (strcmp(cfg.subscribedTopics[i], topicValue) == 0) {
+                                    duplicate = true;
+                                    break;
+                                }
+                            }
+                            if (duplicate) continue;
+
+                            strlcpy(cfg.subscribedTopics[cfg.subscribedTopicCount],
+                                    topicValue,
+                                    sizeof(cfg.subscribedTopics[cfg.subscribedTopicCount]));
+                            cfg.subscribedTopicCount++;
+                        }
                     }
                 }
 

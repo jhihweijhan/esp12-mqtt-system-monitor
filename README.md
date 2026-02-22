@@ -44,20 +44,42 @@ ESP12F WiFi + MQTT 系統監控器，可顯示多台設備的 CPU/RAM/GPU/網路
 
 1. 瀏覽 `http://<IP>/monitor`
 2. 填入 MQTT 伺服器資訊
-3. 設定警示閾值（可選）
-4. 儲存後自動重啟
+3. Topic Pattern 可保留預設（僅相容舊設定）
+4. 在 `Topics` 分頁勾選要訂閱的 sender topics（`sys/agents/<hostname>/metrics`）
+5. 可在同一列自訂 Alias（顯示名稱）
+6. 設定警示閾值（可選）
+7. 儲存後自動重啟
+
+### 搭配 Sender 專案（Docker）
+
+若要使用對應的 sender 專案（`/home/jwj/Workspace/Toys/hwmonitor-mqtt`），建議使用 ESP 專用容器：
+
+```bash
+cd /home/jwj/Workspace/Toys/hwmonitor-mqtt
+docker compose --profile esp-agent up -d --build
+docker compose logs -f sys_agent_esp
+```
+
+`sys_agent_esp` 會自動使用 `SENDER_PROFILE=esp`，降低 payload 大小與發送頻率，較適合 ESP 接收端。
 
 ### MQTT Topic 格式
 
-ESP12 訂閱 `hwmonitor/+/metrics`，期望 JSON 格式：
+ESP12 只會訂閱 WebUI 勾選的主題（allowlist），格式必須是：
+
+- `sys/agents/<hostname>/metrics`
+
+若未勾選任何主題，ESP 不會訂閱任何 sender topic。
+
+期望 JSON 格式：
 
 ```json
 {
-  "cpu": {"percent": 87.5, "temp": 62},
-  "ram": {"percent": 45, "used_gb": 12.3, "total_gb": 32},
-  "gpu": {"percent": 76, "temp": 58, "mem_percent": 45},
-  "net": {"rx_mbps": 12.3, "tx_mbps": 3.2},
-  "disk": {"read_mbs": 5.1, "write_mbs": 2.3}
+  "host": "desktop-01",
+  "cpu": {"percent_total": 87.5},
+  "memory": {"ram": {"percent": 45, "used": 13207024435, "total": 34359738368}},
+  "gpu": {"usage_percent": 76, "temperature_celsius": 58, "memory_percent": 45},
+  "network_io": {"total": {"rate": {"rx_bytes_per_s": 1612186, "tx_bytes_per_s": 419430}}},
+  "disk_io": {"total": {"rate": {"read_bytes_per_s": 5347738, "write_bytes_per_s": 2411724}}}
 }
 ```
 
@@ -69,6 +91,11 @@ ESP12 訂閱 `hwmonitor/+/metrics`，期望 JSON 格式：
 | `/monitor` | 監控設定頁面 |
 | `/api/config` | 設定 API（GET/POST） |
 | `/api/status` | 即時狀態 API |
+
+`/api/config` 的 MQTT 欄位重點：
+
+- `mqtt.subscribedTopics`: 使用者勾選後要實際訂閱的主題清單
+- `mqtt.availableTopics`: WebUI 可勾選的候選主題（由已知 hostname 產生）
 
 ## 硬體配置
 

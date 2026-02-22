@@ -8,6 +8,7 @@
 #define MONITOR_CONFIG_FILE "/monitor.json"
 #define MAX_DEVICES 8
 #define MAX_FIELDS 10
+#define MAX_SUBSCRIBED_TOPICS 8
 #define DEFAULT_OFFLINE_TIMEOUT_SEC 20
 #define MIN_OFFLINE_TIMEOUT_SEC 5
 #define MAX_OFFLINE_TIMEOUT_SEC 300
@@ -61,6 +62,8 @@ struct MonitorConfig {
     char mqttUser[32];
     char mqttPass[32];
     char mqttTopic[64];
+    char subscribedTopics[MAX_SUBSCRIBED_TOPICS][64];
+    uint8_t subscribedTopicCount;
 
     // 設備設定
     DeviceConfig devices[MAX_DEVICES];
@@ -111,6 +114,7 @@ public:
         strcpy(config.mqttUser, "");
         strcpy(config.mqttPass, "");
         strcpy(config.mqttTopic, "sys/agents/+/metrics");
+        config.subscribedTopicCount = 0;
 
         // 設備預設
         config.deviceCount = 0;
@@ -161,6 +165,18 @@ public:
         strlcpy(config.mqttUser, doc["mqtt"]["user"] | "", sizeof(config.mqttUser));
         strlcpy(config.mqttPass, doc["mqtt"]["pass"] | "", sizeof(config.mqttPass));
         strlcpy(config.mqttTopic, doc["mqtt"]["topic"] | "sys/agents/+/metrics", sizeof(config.mqttTopic));
+        config.subscribedTopicCount = 0;
+        JsonArray topicsArr = doc["mqtt"]["subscribedTopics"].as<JsonArray>();
+        if (!topicsArr.isNull()) {
+            for (JsonVariant topicVar : topicsArr) {
+                if (config.subscribedTopicCount >= MAX_SUBSCRIBED_TOPICS) break;
+                const char* topic = topicVar | "";
+                if (!topic || topic[0] == '\0') continue;
+                strlcpy(config.subscribedTopics[config.subscribedTopicCount], topic,
+                        sizeof(config.subscribedTopics[config.subscribedTopicCount]));
+                config.subscribedTopicCount++;
+            }
+        }
 
         // 設備
         JsonArray devicesArr = doc["devices"].as<JsonArray>();
@@ -212,6 +228,10 @@ public:
         doc["mqtt"]["user"] = config.mqttUser;
         doc["mqtt"]["pass"] = config.mqttPass;
         doc["mqtt"]["topic"] = config.mqttTopic;
+        JsonArray subscribedTopics = doc["mqtt"]["subscribedTopics"].to<JsonArray>();
+        for (uint8_t i = 0; i < config.subscribedTopicCount; i++) {
+            subscribedTopics.add(config.subscribedTopics[i]);
+        }
 
         // 設備
         JsonArray devicesArr = doc["devices"].to<JsonArray>();
