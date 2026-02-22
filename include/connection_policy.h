@@ -7,6 +7,7 @@
 
 static const uint32_t MQTT_RECONNECT_BASE_MS = 1000UL;
 static const uint32_t MQTT_RECONNECT_MAX_MS = 60000UL;
+// Keep buffer large enough for sender payload spikes; prioritize connection stability.
 static const size_t MQTT_MAX_PAYLOAD_BYTES = 8192U;
 static const uint16_t MQTT_CONNECT_SOCKET_TIMEOUT_SEC = 2U;
 static const uint16_t MQTT_SOCKET_TIMEOUT_MIN_SEC = 1U;
@@ -17,10 +18,12 @@ static const size_t WIFI_MAX_SSID_LENGTH = 32U;
 static const size_t WIFI_MAX_PASSWORD_LENGTH = 63U;
 static const uint8_t MAX_WIFI_RECOVERY_CYCLES_WITH_SAVED_CONFIG = 12U;
 static const uint16_t DISPLAY_IDLE_REFRESH_MS = 1000U;
-static const uint16_t DISPLAY_ACTIVE_REFRESH_MS = 250U;
-static const uint16_t DISPLAY_FORCE_REDRAW_REFRESH_MS = 120U;
+static const uint16_t DISPLAY_ACTIVE_REFRESH_MS = 500U;
+static const uint16_t DISPLAY_FORCE_REDRAW_REFRESH_MS = 200U;
 static const uint16_t MQTT_RX_LOG_INTERVAL_MS = 2000U;
 static const uint16_t MQTT_STATUS_DISCONNECT_GRACE_MS = 5000U;
+static const uint16_t MQTT_RESUBSCRIBE_STALE_MS = 5000U;
+static const uint16_t DEVICE_OFFLINE_AFTER_RECONNECT_GRACE_MS = 12000U;
 
 static inline uint32_t computeMqttReconnectDelayMs(uint8_t failureCount) {
     if (failureCount > 31) {
@@ -64,7 +67,13 @@ static inline uint16_t sanitizeMqttSocketTimeoutSec(uint16_t timeoutSec) {
 static inline bool shouldAttemptWifiReconnect(unsigned long nowMs,
                                               unsigned long lastWifiReconnectAtMs,
                                               uint32_t retryIntervalMs = WIFI_RECONNECT_RETRY_MS) {
-    return (nowMs - lastWifiReconnectAtMs) >= retryIntervalMs;
+    return (long)(nowMs - lastWifiReconnectAtMs) >= (long)retryIntervalMs;
+}
+
+static inline bool hasElapsedIntervalMs(unsigned long nowMs,
+                                        unsigned long sinceMs,
+                                        unsigned long intervalMs) {
+    return (long)(nowMs - sinceMs) >= (long)intervalMs;
 }
 
 static inline bool shouldEnterApModeAfterBootRetries(bool hasSavedWiFiConfig,
@@ -96,6 +105,45 @@ static inline bool shouldSubscribeAnySenderTopic(uint8_t topicCount) {
 
 static inline bool shouldAutoEnableDeviceOnSubscribedTopic(uint8_t topicCount) {
     return topicCount > 0;
+}
+
+static inline bool shouldFallbackToLegacyTopicSubscription(uint8_t topicCount,
+                                                           const char* legacyTopic) {
+    return topicCount == 0 && legacyTopic && legacyTopic[0] != '\0';
+}
+
+static inline bool shouldAutoEnableDeviceOnTopicMessage(bool usingFallbackTopicSubscription,
+                                                        bool allowlistMatch) {
+    return usingFallbackTopicSubscription || allowlistMatch;
+}
+
+static inline bool shouldResubscribeWhenStreamStalled(bool mqttConnected,
+                                                      unsigned long nowMs,
+                                                      unsigned long lastMessageAtMs,
+                                                      unsigned long lastResubscribeAtMs) {
+    if (!mqttConnected || lastMessageAtMs == 0) {
+        return false;
+    }
+    if (nowMs - lastMessageAtMs < MQTT_RESUBSCRIBE_STALE_MS) {
+        return false;
+    }
+    return (nowMs - lastResubscribeAtMs) >= MQTT_RESUBSCRIBE_STALE_MS;
+}
+
+static inline bool shouldMarkDeviceOffline(bool mqttConnected,
+                                           unsigned long nowMs,
+                                           unsigned long lastUpdateMs,
+                                           unsigned long offlineTimeoutMs,
+                                           unsigned long lastConnectedAtMs,
+                                           unsigned long reconnectGraceMs =
+                                               DEVICE_OFFLINE_AFTER_RECONNECT_GRACE_MS) {
+    if (!mqttConnected) {
+        return false;
+    }
+    if (!hasElapsedIntervalMs(nowMs, lastConnectedAtMs, reconnectGraceMs)) {
+        return false;
+    }
+    return hasElapsedIntervalMs(nowMs, lastUpdateMs, offlineTimeoutMs);
 }
 
 static inline bool isValidSenderMetricsTopic(const char* topic) {

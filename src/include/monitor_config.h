@@ -6,9 +6,9 @@
 #include <ArduinoJson.h>
 
 #define MONITOR_CONFIG_FILE "/monitor.json"
-#define MAX_DEVICES 8
+#define MAX_DEVICES 4
 #define MAX_FIELDS 10
-#define MAX_SUBSCRIBED_TOPICS 8
+#define MAX_SUBSCRIBED_TOPICS 4
 #define DEFAULT_OFFLINE_TIMEOUT_SEC 20
 #define MIN_OFFLINE_TIMEOUT_SEC 5
 #define MAX_OFFLINE_TIMEOUT_SEC 300

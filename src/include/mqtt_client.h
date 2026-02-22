@@ -8,7 +8,8 @@
 #include "connection_policy.h"
 #include "monitor_config.h"
 
-#define MAX_METRICS_DEVICES 8
+// Minimal viable profile: up to 4 sender devices.
+#define MAX_METRICS_DEVICES 4
 
 // 設備指標資料
 struct DeviceMetrics {
@@ -60,6 +61,7 @@ public:
 
     void begin(MonitorConfigManager& configMgr) {
         _configMgr = &configMgr;
+        initializeParseFilter();
     }
 
     void connect() {
@@ -77,7 +79,7 @@ public:
         _client.setCallback(mqttCallback);
         _client.setKeepAlive(MQTT_KEEP_ALIVE_SEC);
         _client.setSocketTimeout(sanitizeMqttSocketTimeoutSec(MQTT_CONNECT_SOCKET_TIMEOUT_SEC));
-        // 限制到 8KB，兼顧大型 payload 與 ESP8266 記憶體壓力
+        // 受限 buffer：降低 ESP8266 heap 壓力
         if (!_client.setBufferSize(MQTT_MAX_PAYLOAD_BYTES)) {
             Serial.printf("MQTT buffer set failed, keep default buffer (%u)\n",
                           (unsigned int)_client.getBufferSize());
@@ -108,12 +110,21 @@ public:
             }
         } else {
             _client.loop();
+            if (_lastMessageAt == 0 && now - _lastWaitingForDataLogAt >= 5000UL) {
+                _lastWaitingForDataLogAt = now;
+                Serial.println("MQTT connected, waiting for first metrics message...");
+            }
         }
 
         // 檢查設備離線狀態（依設定檔 timeout 秒數）
         unsigned long offlineTimeoutMs = getOfflineTimeoutMs();
+        unsigned long offlineCheckNow = millis();
         for (uint8_t i = 0; i < deviceCount; i++) {
-            if (devices[i].online && (now - devices[i].lastUpdate > offlineTimeoutMs)) {
+            if (devices[i].online && shouldMarkDeviceOffline(connected,
+                                                             offlineCheckNow,
+                                                             devices[i].lastUpdate,
+                                                             offlineTimeoutMs,
+                                                             _lastConnectedAt)) {
                 devices[i].online = false;
                 Serial.printf("Device offline: %s\n", devices[i].hostname);
             }
@@ -196,7 +207,7 @@ public:
 
     void handleMessage(char* topic, byte* payload, unsigned int length) {
         if (!isValidMqttPayloadLength(length)) {
-            Serial.printf("MQTT payload rejected: %u bytes\n", length);
+            Serial.println("MQTT payload rejected (invalid length)");
             return;
         }
 
@@ -220,9 +231,10 @@ public:
         bool enabled = false;
         getDeviceConfigState(hostname, isKnown, enabled);
 
+        bool allowlistMatch = isTopicInAllowlist(topic);
         if (_configMgr && isKnown && !enabled &&
-            shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount) &&
-            isTopicInAllowlist(topic)) {
+            shouldAutoEnableDeviceOnTopicMessage(_usingFallbackTopicSubscription,
+                                                 allowlistMatch)) {
             DeviceConfig* cfg = _configMgr->getOrCreateDevice(hostname);
             if (cfg && !cfg->enabled) {
                 cfg->enabled = true;
@@ -253,7 +265,8 @@ public:
             // 確保設定管理器也有此設備
             DeviceConfig* cfg = _configMgr->getOrCreateDevice(hostname);
             if (cfg &&
-                shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount) &&
+                shouldAutoEnableDeviceOnTopicMessage(_usingFallbackTopicSubscription,
+                                                     allowlistMatch) &&
                 !cfg->enabled) {
                 cfg->enabled = true;
                 _configMgr->markDirty();
@@ -267,9 +280,15 @@ public:
         dev->online = true;
         _lastMessageAt = nowMs;
 
-        // 解析 JSON (限制解析深度和大小以避免記憶體問題)
+        // 使用過濾解析，降低 payload 對記憶體與 CPU 影響
+        initializeParseFilter();
         _messageDoc.clear();
-        DeserializationError error = deserializeJson(_messageDoc, payload, length);
+        DeserializationError error = deserializeJson(
+            _messageDoc,
+            payload,
+            length,
+            DeserializationOption::Filter(_parseFilter),
+            DeserializationOption::NestingLimit(12));
         if (error) {
             Serial.printf("JSON parse failed [%s, %u bytes]: %s\n",
                           hostname, length, error.c_str());
@@ -304,23 +323,6 @@ public:
                     dev->gpuMemPercent = (memUsed / memTotal) * 100.0f;
                 }
             }
-
-            // 解析 temperatures 陣列 (GPU/EDG, JCT/HSP, MEM/VRM)
-            if (_messageDoc["gpu"]["temperatures"].is<JsonArray>()) {
-                JsonArray temps = _messageDoc["gpu"]["temperatures"].as<JsonArray>();
-                for (JsonVariant t : temps) {
-                    const char* label = t["label"] | "";
-                    float current = t["current"] | 0.0f;
-                    if (strcmp(label, "GPU") == 0 || strcmp(label, "EDG") == 0 ||
-                        strcmp(label, "COR") == 0) {
-                        dev->gpuTemp = current;
-                    } else if (strcmp(label, "JCT") == 0 || strcmp(label, "HSP") == 0) {
-                        dev->gpuHotspotTemp = current;
-                    } else if (strcmp(label, "MEM") == 0 || strcmp(label, "VRM") == 0) {
-                        dev->gpuMemTemp = current;
-                    }
-                }
-            }
         } else {
             dev->gpuPercent = 0.0f;
             dev->gpuTemp = 0.0f;
@@ -336,20 +338,9 @@ public:
         dev->netRxMbps = (netRxBps * 8.0f) / (1024.0f * 1024.0f);
         dev->netTxMbps = (netTxBps * 8.0f) / (1024.0f * 1024.0f);
 
-        // 磁碟 (agent_sender_async.py: disk_io.{device}.rate.read_bytes_per_s/write_bytes_per_s)
-        // 取所有磁碟的加總，轉換為 MB/s
-        float totalReadBps = 0.0f;
-        float totalWriteBps = 0.0f;
-        JsonObject diskIo = _messageDoc["disk_io"].as<JsonObject>();
-        for (JsonPair kv : diskIo) {
-            JsonObject disk = kv.value().as<JsonObject>();
-            if (disk["rate"].is<JsonObject>()) {
-                totalReadBps += disk["rate"]["read_bytes_per_s"] | 0.0f;
-                totalWriteBps += disk["rate"]["write_bytes_per_s"] | 0.0f;
-            }
-        }
-        dev->diskReadMBs = totalReadBps / (1024.0f * 1024.0f);
-        dev->diskWriteMBs = totalWriteBps / (1024.0f * 1024.0f);
+        // Minimal profile: 不解析 disk 區塊，避免可變鍵值遍歷造成額外負擔
+        dev->diskReadMBs = 0.0f;
+        dev->diskWriteMBs = 0.0f;
 
         // CPU 溫度 (agent_sender_async.py: temperatures.k10temp[0].current 或 coretemp[0].current)
         dev->cpuTemp = 0.0f;
@@ -397,6 +388,11 @@ private:
     uint16_t _rxMessageCount = 0;
     unsigned long _lastConnectedAt = 0;
     unsigned long _lastMessageAt = 0;
+    unsigned long _lastResubscribeAt = 0;
+    unsigned long _lastWaitingForDataLogAt = 0;
+    bool _parseFilterReady = false;
+    bool _usingFallbackTopicSubscription = false;
+    JsonDocument _parseFilter;
     JsonDocument _messageDoc;
 
     unsigned long getOfflineTimeoutMs() const {
@@ -407,6 +403,28 @@ private:
         return (unsigned long)sec * 1000UL;
     }
 
+    void initializeParseFilter() {
+        if (_parseFilterReady) return;
+
+        _parseFilter.clear();
+        _parseFilter["cpu"]["percent_total"] = true;
+        _parseFilter["memory"]["ram"]["percent"] = true;
+        _parseFilter["memory"]["ram"]["used"] = true;
+        _parseFilter["memory"]["ram"]["total"] = true;
+        _parseFilter["gpu"]["usage_percent"] = true;
+        _parseFilter["gpu"]["temperature_celsius"] = true;
+        _parseFilter["gpu"]["memory_percent"] = true;
+        _parseFilter["gpu"]["memory_used_mb"] = true;
+        _parseFilter["gpu"]["memory_total_mb"] = true;
+        _parseFilter["network_io"]["total"]["rate"]["rx_bytes_per_s"] = true;
+        _parseFilter["network_io"]["total"]["rate"]["tx_bytes_per_s"] = true;
+        _parseFilter["temperatures"]["k10temp"][0]["current"] = true;
+        _parseFilter["temperatures"]["coretemp"][0]["current"] = true;
+        _parseFilter["temperatures"]["cpu_thermal"][0]["current"] = true;
+
+        _parseFilterReady = true;
+    }
+
     static void mqttCallback(char* topic, byte* payload, unsigned int length) {
         if (_mqttInstance) {
             _mqttInstance->handleMessage(topic, payload, length);
@@ -415,6 +433,7 @@ private:
 
     void subscribeConfiguredTopics() {
         _strictKnownHostsOnly = false;
+        _usingFallbackTopicSubscription = false;
         if (!_configMgr) return;
 
         char uniqueTopics[MAX_SUBSCRIBED_TOPICS][64];
@@ -444,18 +463,33 @@ private:
             uniqueCount++;
         }
 
-        if (!shouldSubscribeAnySenderTopic(uniqueCount)) {
-            Serial.println("No sender topics configured, skip MQTT subscriptions");
+        if (shouldSubscribeAnySenderTopic(uniqueCount)) {
+            for (uint8_t i = 0; i < uniqueCount; i++) {
+                if (_client.subscribe(uniqueTopics[i])) {
+                    Serial.printf("Subscribed sender topic: %s\n", uniqueTopics[i]);
+                } else {
+                    Serial.printf("Subscribe failed: %s\n", uniqueTopics[i]);
+                }
+            }
+            _lastResubscribeAt = millis();
             return;
         }
 
-        for (uint8_t i = 0; i < uniqueCount; i++) {
-            if (_client.subscribe(uniqueTopics[i])) {
-                Serial.printf("Subscribed sender topic: %s\n", uniqueTopics[i]);
+        if (shouldFallbackToLegacyTopicSubscription(_configMgr->config.subscribedTopicCount,
+                                                    _configMgr->config.mqttTopic)) {
+            if (_client.subscribe(_configMgr->config.mqttTopic)) {
+                _usingFallbackTopicSubscription = true;
+                _lastResubscribeAt = millis();
+                Serial.printf("Subscribed legacy topic fallback: %s\n",
+                              _configMgr->config.mqttTopic);
             } else {
-                Serial.printf("Subscribe failed: %s\n", uniqueTopics[i]);
+                Serial.printf("Legacy topic subscribe failed: %s\n",
+                              _configMgr->config.mqttTopic);
             }
+            return;
         }
+
+        Serial.println("No sender topics configured, skip MQTT subscriptions");
     }
 
     void reconnect() {

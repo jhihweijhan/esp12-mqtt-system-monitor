@@ -10,14 +10,16 @@
 TFTDriver tft;
 QRDisplay qr(tft);
 WiFiManager wifiMgr;
-WebServerManager* webServer = nullptr;
 MonitorConfigManager monitorConfig;
 MQTTClient mqttClient;
-MonitorDisplay* monitorDisplay = nullptr;
+MonitorDisplay monitorDisplay(tft, mqttClient, monitorConfig);
+WebServerManager webServer(wifiMgr);
+bool monitorDisplayStarted = false;
+bool webServerStarted = false;
 
 void onMqttMetricsReceived(const char* hostname) {
-    if (monitorDisplay) {
-        monitorDisplay->notifyMetricsUpdated(hostname);
+    if (monitorDisplayStarted) {
+        monitorDisplay.notifyMetricsUpdated(hostname);
     }
 }
 
@@ -123,16 +125,16 @@ void startMonitorMode() {
         mqttClient.connect();
     }
 
-    if (!monitorDisplay) {
-        monitorDisplay = new MonitorDisplay(tft, mqttClient, monitorConfig);
-        monitorDisplay->begin();
+    if (!monitorDisplayStarted) {
+        monitorDisplay.begin();
+        monitorDisplayStarted = true;
     }
 
-    if (!webServer) {
-        webServer = new WebServerManager(wifiMgr);
-        webServer->setMonitorConfig(&monitorConfig);
-        webServer->setMQTTClient(&mqttClient);
-        webServer->begin();
+    if (!webServerStarted) {
+        webServer.setMonitorConfig(&monitorConfig);
+        webServer.setMQTTClient(&mqttClient);
+        webServer.begin();
+        webServerStarted = true;
     }
 
     Serial.println("Monitor mode started");
@@ -148,10 +150,10 @@ void startAPMode() {
     showAPScreen();
     wifiMgr.startScan();
 
-    if (!webServer) {
-        webServer = new WebServerManager(wifiMgr);
-        webServer->setMonitorConfig(&monitorConfig);
-        webServer->begin();
+    if (!webServerStarted) {
+        webServer.setMonitorConfig(&monitorConfig);
+        webServer.begin();
+        webServerStarted = true;
     }
 
     startupState = STARTUP_DONE;
@@ -315,8 +317,8 @@ void setup() {
 void loop() {
     if (startupState != STARTUP_DONE) {
         processStartup();
-        if (webServer) {
-            webServer->loop();
+        if (webServerStarted) {
+            webServer.loop();
         }
         yield();
         delay(2);
@@ -324,7 +326,9 @@ void loop() {
     }
 
     // Web Server 延遲重啟
-    if (webServer) webServer->loop();
+    if (webServerStarted) {
+        webServer.loop();
+    }
 
     if (currentMode == MODE_MONITOR) {
         // 監控模式
@@ -332,8 +336,8 @@ void loop() {
         yield();
         monitorConfig.loop();  // 處理延遲儲存
         yield();
-        if (monitorDisplay) {
-            monitorDisplay->loop();
+        if (monitorDisplayStarted) {
+            monitorDisplay.loop();
         }
     }
 

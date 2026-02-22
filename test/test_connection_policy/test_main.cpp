@@ -23,6 +23,13 @@ void test_mqtt_port_validation() {
     TEST_ASSERT_FALSE(isValidMqttPort(0));
 }
 
+void test_mqtt_payload_length_validation() {
+    TEST_ASSERT_TRUE(isValidMqttPayloadLength(1));
+    TEST_ASSERT_TRUE(isValidMqttPayloadLength(8192));
+    TEST_ASSERT_FALSE(isValidMqttPayloadLength(0));
+    TEST_ASSERT_FALSE(isValidMqttPayloadLength(8193));
+}
+
 void test_wifi_boot_ap_fallback_policy() {
     TEST_ASSERT_TRUE(shouldEnterApModeAfterBootRetries(false, true, 0));
     TEST_ASSERT_FALSE(shouldEnterApModeAfterBootRetries(true, true, 0));
@@ -97,11 +104,40 @@ void test_wifi_reconnect_retry_policy() {
     TEST_ASSERT_TRUE(shouldAttemptWifiReconnect(7000, 1000, 6000));
 }
 
+void test_mqtt_topic_fallback_policy() {
+    TEST_ASSERT_TRUE(shouldFallbackToLegacyTopicSubscription(0, "sys/agents/+/metrics"));
+    TEST_ASSERT_FALSE(shouldFallbackToLegacyTopicSubscription(1, "sys/agents/+/metrics"));
+    TEST_ASSERT_FALSE(shouldFallbackToLegacyTopicSubscription(0, ""));
+    TEST_ASSERT_FALSE(shouldFallbackToLegacyTopicSubscription(0, nullptr));
+}
+
+void test_auto_enable_fallback_device_policy() {
+    TEST_ASSERT_TRUE(shouldAutoEnableDeviceOnTopicMessage(true, false));
+    TEST_ASSERT_TRUE(shouldAutoEnableDeviceOnTopicMessage(true, true));
+    TEST_ASSERT_TRUE(shouldAutoEnableDeviceOnTopicMessage(false, true));
+    TEST_ASSERT_FALSE(shouldAutoEnableDeviceOnTopicMessage(false, false));
+}
+
+void test_elapsed_interval_policy() {
+    TEST_ASSERT_TRUE(hasElapsedIntervalMs(6000UL, 1000UL, 5000UL));
+    TEST_ASSERT_FALSE(hasElapsedIntervalMs(5999UL, 1000UL, 5000UL));
+
+    // now < since: 不應因 unsigned underflow 被誤判為已逾時
+    TEST_ASSERT_FALSE(hasElapsedIntervalMs(1000UL, 6000UL, 5000UL));
+}
+
+void test_device_offline_decision_policy() {
+    TEST_ASSERT_TRUE(shouldMarkDeviceOffline(true, 40000UL, 10000UL, 20000UL, 10000UL));
+    TEST_ASSERT_FALSE(shouldMarkDeviceOffline(false, 40000UL, 10000UL, 20000UL, 10000UL));
+    TEST_ASSERT_FALSE(shouldMarkDeviceOffline(true, 24000UL, 10000UL, 20000UL, 20000UL));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_backoff_increases_and_caps);
     RUN_TEST(test_wifi_credential_validation);
     RUN_TEST(test_mqtt_port_validation);
+    RUN_TEST(test_mqtt_payload_length_validation);
     RUN_TEST(test_wifi_boot_ap_fallback_policy);
     RUN_TEST(test_mqtt_subscription_strategy_policy);
     RUN_TEST(test_sender_topic_subscription_policy);
@@ -111,5 +147,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_mqtt_disconnect_status_grace_policy);
     RUN_TEST(test_mqtt_socket_timeout_policy);
     RUN_TEST(test_wifi_reconnect_retry_policy);
+    RUN_TEST(test_mqtt_topic_fallback_policy);
+    RUN_TEST(test_auto_enable_fallback_device_policy);
+    RUN_TEST(test_elapsed_interval_policy);
+    RUN_TEST(test_device_offline_decision_policy);
     return UNITY_END();
 }
