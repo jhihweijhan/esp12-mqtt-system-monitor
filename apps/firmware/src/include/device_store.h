@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <string.h>
 
+#include "connection_policy.h"
 #include "metrics_v2.h"
 #include "monitor_config.h"
 
@@ -111,7 +112,7 @@ public:
             if (!slot.inUse || !slot.online) {
                 continue;
             }
-            if (nowMs - slot.lastUpdateMs > timeoutMs) {
+            if (hasElapsedIntervalMs(nowMs, slot.lastUpdateMs, timeoutMs)) {
                 slot.online = false;
                 slot.dirtyMask |= DIRTY_ONLINE;
             }

@@ -96,11 +96,24 @@ void test_display_refresh_policy() {
                              computeDisplayRefreshIntervalMs(false, false));
 }
 
+void test_display_header_redraw_policy() {
+    TEST_ASSERT_TRUE(shouldRedrawDeviceHeader(true, false, 0));
+    TEST_ASSERT_TRUE(shouldRedrawDeviceHeader(false, true, 0));
+    TEST_ASSERT_FALSE(shouldRedrawDeviceHeader(false, false, 0));
+    TEST_ASSERT_TRUE(shouldRedrawDeviceHeader(false, false, DEVICE_ONLINE_DIRTY_MASK));
+}
+
 void test_mqtt_disconnect_status_grace_policy() {
     TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(true, 10000, 0, 0));
     TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(false, 10000, 7000, 0));
     TEST_ASSERT_FALSE(shouldShowMqttDisconnectedStatus(false, 10000, 0, 7000));
     TEST_ASSERT_TRUE(shouldShowMqttDisconnectedStatus(false, 10000, 1000, 1000));
+}
+
+void test_elapsed_interval_policy() {
+    TEST_ASSERT_FALSE(hasElapsedIntervalMs(1000, 900, 200));
+    TEST_ASSERT_TRUE(hasElapsedIntervalMs(1301, 900, 200));
+    TEST_ASSERT_FALSE(hasElapsedIntervalMs(1000, 1200, 200));
 }
 
 int main(int argc, char** argv) {
@@ -116,6 +129,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_sender_wildcard_topic_validation_policy);
     RUN_TEST(test_sender_topic_hostname_extract_policy);
     RUN_TEST(test_display_refresh_policy);
+    RUN_TEST(test_display_header_redraw_policy);
     RUN_TEST(test_mqtt_disconnect_status_grace_policy);
+    RUN_TEST(test_elapsed_interval_policy);
     return UNITY_END();
 }

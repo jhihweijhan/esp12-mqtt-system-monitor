@@ -137,8 +137,11 @@ private:
         DeviceConfig* cfg = _config.getOrCreateDevice(slot->hostname);
         const char* alias = (cfg && strlen(cfg->alias) > 0) ? cfg->alias : slot->hostname;
 
-        bool headerRedraw = _forceRedraw || strcmp(_lastHostname, slot->hostname) != 0;
         uint16_t dirty = _store.consumeDirtyMask(slot);
+        bool headerRedraw = shouldRedrawDeviceHeader(
+            _forceRedraw,
+            strcmp(_lastHostname, slot->hostname) != 0,
+            dirty);
         if (headerRedraw) {
             dirty = DIRTY_ALL;
             _tft.fillScreen(COLOR_BLACK);

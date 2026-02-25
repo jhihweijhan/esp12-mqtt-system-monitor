@@ -59,7 +59,8 @@ public:
             _client.loop();
         }
 
-        _store->markOfflineExpired(now, getOfflineTimeoutMs());
+        unsigned long offlineCheckNow = millis();
+        _store->markOfflineExpired(offlineCheckNow, getOfflineTimeoutMs());
     }
 
     bool isConnected() {

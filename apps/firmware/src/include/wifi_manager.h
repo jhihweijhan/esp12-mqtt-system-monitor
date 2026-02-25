@@ -155,10 +155,41 @@ public:
         WiFi.persistent(true);
         WiFi.setAutoReconnect(true);
         WiFi.mode(WIFI_STA);
-        WiFi.begin(ssid.c_str(), password.c_str());
+        delay(30);
+        WiFi.disconnect();
+        delay(80);
+        int networkCount = WiFi.scanNetworks(false, true);
+        int matchedIndex = -1;
+        if (networkCount > 0) {
+            Serial.printf("掃描到 %d 個 AP\n", networkCount);
+            for (int i = 0; i < networkCount; i++) {
+                String foundSsid = WiFi.SSID(i);
+                int32_t rssi = WiFi.RSSI(i);
+                int32_t channel = WiFi.channel(i);
+                Serial.printf("  AP[%d] %s ch=%ld rssi=%ld\n", i, foundSsid.c_str(), (long)channel, (long)rssi);
+                if (matchedIndex < 0 && foundSsid == ssid) {
+                    matchedIndex = i;
+                }
+            }
+        } else {
+            Serial.println("掃描 AP 失敗或未找到任何 AP");
+        }
+
+        if (matchedIndex >= 0) {
+            uint8_t* bssid = WiFi.BSSID(matchedIndex);
+            int32_t channel = WiFi.channel(matchedIndex);
+            Serial.printf("使用 BSSID 定向連線: ch=%ld\n", (long)channel);
+            WiFi.begin(ssid.c_str(), password.c_str(), channel, bssid, true);
+        } else {
+            Serial.println("未在掃描結果找到目標 SSID，改用一般連線");
+            WiFi.begin(ssid.c_str(), password.c_str());
+        }
+        WiFi.scanDelete();
 
         _connectStartTime = millis();
         _lastConnectDotAt = _connectStartTime;
+        _lastStatusLogAt = _connectStartTime;
+        _lastStatus = WL_IDLE_STATUS;
         _connectUsingStoredCredential = false;
         _connectInProgress = true;
         return true;
@@ -171,10 +202,15 @@ public:
         WiFi.persistent(true);
         WiFi.setAutoReconnect(true);
         WiFi.mode(WIFI_STA);
+        delay(30);
+        WiFi.disconnect();
+        delay(80);
         WiFi.begin();
 
         _connectStartTime = millis();
         _lastConnectDotAt = _connectStartTime;
+        _lastStatusLogAt = _connectStartTime;
+        _lastStatus = WL_IDLE_STATUS;
         _connectUsingStoredCredential = true;
         _connectInProgress = true;
         return true;
@@ -201,12 +237,20 @@ public:
         }
 
         unsigned long now = millis();
+        wl_status_t status = WiFi.status();
+
+        if (status != _lastStatus || now - _lastStatusLogAt >= 2000) {
+            _lastStatus = status;
+            _lastStatusLogAt = now;
+            Serial.printf(" [WiFi:%s]", wifiStatusToString(status));
+        }
+
         if (now - _connectStartTime > WIFI_CONNECT_TIMEOUT) {
             _connectInProgress = false;
             if (_connectUsingStoredCredential) {
-                Serial.println("\nSDK WiFi 連線超時");
+                Serial.printf("\nSDK WiFi 連線超時 (status=%s)\n", wifiStatusToString(status));
             } else {
-                Serial.println("\nWiFi 連線超時");
+                Serial.printf("\nWiFi 連線超時 (status=%s)\n", wifiStatusToString(status));
             }
             return CONNECT_TIMEOUT;
         }
@@ -317,6 +361,28 @@ private:
     bool _connectUsingStoredCredential = false;
     unsigned long _connectStartTime = 0;
     unsigned long _lastConnectDotAt = 0;
+    unsigned long _lastStatusLogAt = 0;
+    wl_status_t _lastStatus = WL_IDLE_STATUS;
+
+    const char* wifiStatusToString(wl_status_t status) {
+        switch (status) {
+            case WL_CONNECTED:
+                return "CONNECTED";
+            case WL_NO_SSID_AVAIL:
+                return "NO_SSID";
+            case WL_CONNECT_FAILED:
+                return "CONNECT_FAILED";
+            case WL_CONNECTION_LOST:
+                return "CONNECTION_LOST";
+            case WL_DISCONNECTED:
+                return "DISCONNECTED";
+            case WL_SCAN_COMPLETED:
+                return "SCAN_COMPLETED";
+            case WL_IDLE_STATUS:
+            default:
+                return "IDLE";
+        }
+    }
 };
 
 #endif
