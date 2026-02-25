@@ -51,8 +51,3 @@ MQTT_HOST=127.0.0.1 MQTT_PORT=1883 MQTT_USER=your_user MQTT_PASS=your_pass ./sen
 - `sys/agents/<hostname>/metrics/v2`
 
 Payload 規格請看：`docs/protocol/metrics-v2.md`
-
-## 協作說明
-
-這個子倉是 **公開的共同開發程式碼倉庫**，不包含 AI 開發工具與工作資料。  
-如果你是專案核心開發者，請從私有主倉 `ESP12-Blink-dev` 入口進行開發（主倉會以 submodule 引用本倉）。
