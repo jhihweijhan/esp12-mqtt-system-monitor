@@ -39,3 +39,5 @@ Compact JSON with fixed keys and fixed array positions.
 - Firmware rejects payloads where `v != 2`.
 - Recommended sender frequency: `1Hz` per host.
 - Sender should always send all arrays; when unavailable, send `0` for values.
+- Broker authentication is supported and commonly required in production.
+- When broker requires auth, sender must set `MQTT_USER` and `MQTT_PASS`.

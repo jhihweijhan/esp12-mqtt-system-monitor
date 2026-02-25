@@ -17,7 +17,7 @@ uv sync --extra dev
 ## Run
 
 ```bash
-MQTT_HOST=127.0.0.1 MQTT_PORT=1883 uv run python sender_v2.py
+MQTT_HOST=127.0.0.1 MQTT_PORT=1883 MQTT_USER=your_user MQTT_PASS=your_pass uv run python sender_v2.py
 ```
 
 If broker is not ready, sender now retries with backoff instead of exiting.
@@ -34,6 +34,8 @@ Optional env vars:
 - `MQTT_USER`
 - `MQTT_PASS`
 - `MQTT_QOS` (0-2)
+
+If your broker requires authentication, `MQTT_USER` and `MQTT_PASS` are required.
 
 Publishes to:
 - `sys/agents/<hostname>/metrics/v2`

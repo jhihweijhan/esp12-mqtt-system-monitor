@@ -12,7 +12,7 @@ go build -o sender_v2 .
 ## Run
 
 ```bash
-MQTT_HOST=127.0.0.1 MQTT_PORT=1883 ./sender_v2
+MQTT_HOST=127.0.0.1 MQTT_PORT=1883 MQTT_USER=your_user MQTT_PASS=your_pass ./sender_v2
 ```
 
 Optional env vars:
@@ -21,6 +21,8 @@ Optional env vars:
 - `MQTT_USER`
 - `MQTT_PASS`
 - `MQTT_QOS`
+
+If your broker requires authentication, `MQTT_USER` and `MQTT_PASS` are required.
 
 Publishes to:
 - `sys/agents/<hostname>/metrics/v2`
