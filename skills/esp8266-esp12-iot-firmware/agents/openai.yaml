@@ -1,4 +1,0 @@
-interface:
-  display_name: "ESP8266 ESP12 IoT Firmware"
-  short_description: "Build secure and efficient ESP8266 ESP-12 firmware."
-  default_prompt: "Use this skill to implement secure, resource-aware, and production-ready ESP8266 ESP-12 IoT firmware with clear optimization and verification steps."

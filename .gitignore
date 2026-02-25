@@ -12,4 +12,8 @@ apps/sender/go/sender_v2
 apps/firmware/.vscode/
 .serena/
 .beads/daemon-error
+.beads/
+.claude/
+AGENTS.md
+skills/
 original_firmware.bin
