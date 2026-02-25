@@ -1,4 +1,4 @@
-# ESP12-Blink
+# Mochi-Metrics
 
 把電腦的系統資訊（CPU / RAM / GPU / 網路 / 磁碟）透過 MQTT 傳到 ESP12，並在小螢幕即時顯示。
 
