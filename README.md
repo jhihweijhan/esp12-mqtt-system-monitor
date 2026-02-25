@@ -11,13 +11,13 @@
 - 提供 WebUI 設定 MQTT 與顯示參數
 - Sender 支援 Python（推薦）與 Go
 
-## 圖文快速認識硬體
+## 硬體型號資訊
 
-| 模組 | 圖片 |
+| 元件 | 型號 |
 |---|---|
-| 螢幕背面 | ![螢幕背面](docs/images/hardware-display-back.jpeg) |
-| 驅動板 | ![驅動板](docs/images/hardware-driver-board.jpeg) |
-| ESP12 主板 | ![ESP12 主板](docs/images/hardware-esp12-board.jpeg) |
+| LCD | `BL-A54038P-02` |
+| Wi-Fi 模組 | `ESP-12F` |
+| 驅動板 | `V1.9`（轉接板） |
 
 ## 你現在想做哪一件事
 
