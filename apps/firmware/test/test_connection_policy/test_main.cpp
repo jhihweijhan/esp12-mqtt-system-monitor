@@ -65,6 +65,16 @@ void test_sender_topic_validation_policy() {
     TEST_ASSERT_FALSE(isValidSenderMetricsTopic("other/agents/desk/metrics/v2"));
 }
 
+void test_sender_wildcard_topic_validation_policy() {
+    TEST_ASSERT_TRUE(isValidSenderWildcardMetricsTopic("sys/agents/+/metrics/v2"));
+
+    TEST_ASSERT_FALSE(isValidSenderWildcardMetricsTopic(nullptr));
+    TEST_ASSERT_FALSE(isValidSenderWildcardMetricsTopic(""));
+    TEST_ASSERT_FALSE(isValidSenderWildcardMetricsTopic("sys/agents/desk/metrics/v2"));
+    TEST_ASSERT_FALSE(isValidSenderWildcardMetricsTopic("sys/agents/#/metrics/v2"));
+    TEST_ASSERT_FALSE(isValidSenderWildcardMetricsTopic("sys/agents/+/metrics"));
+}
+
 void test_sender_topic_hostname_extract_policy() {
     char host[32];
     TEST_ASSERT_TRUE(extractHostnameFromSenderTopic("sys/agents/desk/metrics/v2", host, sizeof(host)));
@@ -103,6 +113,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_sender_topic_subscription_policy);
     RUN_TEST(test_auto_enable_device_on_subscribed_topic_policy);
     RUN_TEST(test_sender_topic_validation_policy);
+    RUN_TEST(test_sender_wildcard_topic_validation_policy);
     RUN_TEST(test_sender_topic_hostname_extract_policy);
     RUN_TEST(test_display_refresh_policy);
     RUN_TEST(test_mqtt_disconnect_status_grace_policy);

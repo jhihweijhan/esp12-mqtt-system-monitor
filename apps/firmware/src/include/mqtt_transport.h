@@ -84,6 +84,10 @@ public:
         return false;
     }
 
+    bool hasTopicAllowlist() const {
+        return _configMgr && _configMgr->config.subscribedTopicCount > 0;
+    }
+
     void handleMessage(char* topic, uint8_t* payload, unsigned int length) {
         if (!_configMgr || !_store) {
             return;
@@ -94,7 +98,11 @@ public:
             return;
         }
 
-        if (!isTopicInAllowlist(topic)) {
+        bool allowlistMode = hasTopicAllowlist();
+        if (allowlistMode && !isTopicInAllowlist(topic)) {
+            return;
+        }
+        if (!allowlistMode && !isValidSenderMetricsTopic(topic)) {
             return;
         }
 
@@ -125,7 +133,8 @@ public:
         }
 
         DeviceConfig* cfg = _configMgr->getOrCreateDevice(hostname);
-        if (cfg && !cfg->enabled && shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount)) {
+        if (cfg && !cfg->enabled &&
+            (!allowlistMode || shouldAutoEnableDeviceOnSubscribedTopic(_configMgr->config.subscribedTopicCount))) {
             cfg->enabled = true;
             _configMgr->markDirty();
         }
@@ -240,7 +249,16 @@ private:
         }
 
         if (!shouldSubscribeAnySenderTopic(uniqueCount)) {
-            Serial.println("No sender topics configured, skip MQTT subscriptions");
+            const char* discoveryTopic = _configMgr->config.mqttTopic;
+            if (!isValidSenderWildcardMetricsTopic(discoveryTopic)) {
+                discoveryTopic = MQTT_SENDER_DISCOVERY_TOPIC;
+            }
+
+            if (_client.subscribe(discoveryTopic)) {
+                Serial.printf("Subscribed discovery topic: %s\n", discoveryTopic);
+            } else {
+                Serial.printf("Subscribe failed (discovery): %s\n", discoveryTopic);
+            }
             return;
         }
 

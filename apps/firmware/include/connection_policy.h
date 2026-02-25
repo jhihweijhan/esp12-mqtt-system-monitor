@@ -19,6 +19,7 @@ static const uint16_t MQTT_STATUS_DISCONNECT_GRACE_MS = 5000U;
 
 static const char MQTT_SENDER_TOPIC_PREFIX[] = "sys/agents/";
 static const char MQTT_SENDER_TOPIC_SUFFIX[] = "/metrics/v2";
+static const char MQTT_SENDER_DISCOVERY_TOPIC[] = "sys/agents/+/metrics/v2";
 
 static inline uint32_t computeMqttReconnectDelayMs(uint8_t failureCount) {
     if (failureCount > 31) {
@@ -118,6 +119,34 @@ static inline bool isValidSenderMetricsTopic(const char* topic) {
     const char* hostStart = topic + prefixLen;
     const char* hostEnd = topic + topicLen - suffixLen;
     return isValidSenderHostname(hostStart, hostEnd);
+}
+
+static inline bool isValidSenderWildcardMetricsTopic(const char* topic) {
+    if (!topic) {
+        return false;
+    }
+
+    const size_t topicLen = strlen(topic);
+    const size_t prefixLen = sizeof(MQTT_SENDER_TOPIC_PREFIX) - 1;
+    const size_t suffixLen = sizeof(MQTT_SENDER_TOPIC_SUFFIX) - 1;
+
+    if (topicLen <= prefixLen + suffixLen) {
+        return false;
+    }
+
+    if (strncmp(topic, MQTT_SENDER_TOPIC_PREFIX, prefixLen) != 0) {
+        return false;
+    }
+
+    if (strcmp(topic + topicLen - suffixLen, MQTT_SENDER_TOPIC_SUFFIX) != 0) {
+        return false;
+    }
+
+    const char* hostStart = topic + prefixLen;
+    const char* hostEnd = topic + topicLen - suffixLen;
+    size_t hostLen = (size_t)(hostEnd - hostStart);
+
+    return hostLen == 1 && hostStart[0] == '+';
 }
 
 static inline bool extractHostnameFromSenderTopic(const char* topic, char* outHost, size_t outHostSize) {
