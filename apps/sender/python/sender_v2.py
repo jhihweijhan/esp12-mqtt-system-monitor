@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import time
+import re
 from dataclasses import dataclass
 
 import psutil
@@ -24,6 +25,9 @@ from metrics_payload import (
     build_payload,
     topic_for_host,
 )
+
+_NVIDIA_SMI = shutil.which("nvidia-smi")
+_ROCM_SMI = shutil.which("rocm-smi")
 
 
 @dataclass
@@ -86,11 +90,23 @@ def get_cpu_temp_c() -> float:
 
 
 def get_gpu_snapshot() -> GpuSnapshot:
-    if not shutil.which("nvidia-smi"):
-        return GpuSnapshot()
+    nvidia_snapshot = _read_gpu_snapshot_nvidia()
+    if nvidia_snapshot is not None:
+        return nvidia_snapshot
+
+    rocm_snapshot = _read_gpu_snapshot_rocm()
+    if rocm_snapshot is not None:
+        return rocm_snapshot
+
+    return GpuSnapshot()
+
+
+def _read_gpu_snapshot_nvidia() -> GpuSnapshot | None:
+    if not _NVIDIA_SMI:
+        return None
 
     query = (
-        "nvidia-smi",
+        _NVIDIA_SMI,
         "--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total",
         "--format=csv,noheader,nounits",
     )
@@ -98,15 +114,15 @@ def get_gpu_snapshot() -> GpuSnapshot:
     try:
         raw = subprocess.check_output(query, stderr=subprocess.DEVNULL, text=True, timeout=1.0).strip()
     except (subprocess.SubprocessError, OSError):
-        return GpuSnapshot()
+        return None
 
     if not raw:
-        return GpuSnapshot()
+        return None
 
     first_line = raw.splitlines()[0]
     parts = [p.strip() for p in first_line.split(",")]
     if len(parts) < 4:
-        return GpuSnapshot()
+        return None
 
     try:
         usage = float(parts[0])
@@ -115,9 +131,71 @@ def get_gpu_snapshot() -> GpuSnapshot:
         mem_total = float(parts[3])
         mem_percent = (mem_used / mem_total * 100.0) if mem_total > 0 else 0.0
     except ValueError:
-        return GpuSnapshot()
+        return None
 
     return GpuSnapshot(percent=usage, temp_c=temp, mem_percent=mem_percent)
+
+
+def _read_gpu_snapshot_rocm() -> GpuSnapshot | None:
+    if not _ROCM_SMI:
+        return None
+
+    query = (_ROCM_SMI, "--showuse", "--showtemp", "--showmemuse", "--json")
+    try:
+        raw = subprocess.check_output(query, stderr=subprocess.DEVNULL, text=True, timeout=1.0).strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+    if not raw:
+        return None
+
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return None
+
+    if not isinstance(parsed, dict) or not parsed:
+        return None
+
+    first_gpu = None
+    for key, value in parsed.items():
+        if isinstance(value, dict) and str(key).lower().startswith("card"):
+            first_gpu = value
+            break
+    if first_gpu is None:
+        return None
+
+    usage = _read_metric_float(first_gpu.get("GPU use (%)"))
+    edge_temp = _read_metric_float(first_gpu.get("Temperature (Sensor edge) (C)"))
+    junction_temp = _read_metric_float(first_gpu.get("Temperature (Sensor junction) (C)"))
+    mem_temp = _read_metric_float(first_gpu.get("Temperature (Sensor memory) (C)"))
+    mem_pct = _read_metric_float(first_gpu.get("GPU Memory Allocated (VRAM%)"))
+
+    if usage is None and edge_temp is None and junction_temp is None and mem_pct is None:
+        return None
+
+    return GpuSnapshot(
+        percent=usage if usage is not None else 0.0,
+        temp_c=edge_temp if edge_temp is not None else (junction_temp if junction_temp is not None else 0.0),
+        mem_percent=mem_pct if mem_pct is not None else 0.0,
+        hotspot_c=junction_temp if junction_temp is not None else 0.0,
+        mem_temp_c=mem_temp if mem_temp is not None else 0.0,
+    )
+
+
+def _read_metric_float(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value)
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
 
 
 def build_snapshot(hostname: str, rate_sampler: RateSampler) -> MetricsSnapshot:

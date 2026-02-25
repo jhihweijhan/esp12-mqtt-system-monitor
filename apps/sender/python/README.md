@@ -22,6 +22,11 @@ MQTT_HOST=127.0.0.1 MQTT_PORT=1883 MQTT_USER=your_user MQTT_PASS=your_pass uv ru
 
 If broker is not ready, sender now retries with backoff instead of exiting.
 
+GPU metrics source (auto-detect):
+- NVIDIA: `nvidia-smi`
+- AMD: `rocm-smi --json`
+- If neither tool is available, GPU fields fall back to `0`.
+
 ## Test
 
 ```bash
