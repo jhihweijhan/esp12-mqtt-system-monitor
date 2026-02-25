@@ -1,7 +1,5 @@
 # ESP12 MQTT 系統監控器實作計畫
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** 在 ESP12 240x240 TFT 螢幕上顯示多台設備的系統監控資訊（CPU/RAM/GPU/網路/磁碟），透過 MQTT 訂閱接收數據，並提供 WebUI 設定介面。
 
 **Architecture:**

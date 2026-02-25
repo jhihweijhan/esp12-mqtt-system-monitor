@@ -1,7 +1,5 @@
 # Minimal Resource Refactor Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Refactor firmware runtime paths to a minimal viable architecture with lower RAM/CPU pressure and better long-run MQTT/WiFi stability on ESP12.
 
 **Architecture:** Keep external behavior and WebUI endpoints intact, but replace heavy runtime internals with bounded-memory and low-fragmentation implementations. Prioritize zero-heap churn in hot paths, bounded reconnect behavior, and reduced display refresh pressure.
