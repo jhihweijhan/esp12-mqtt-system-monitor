@@ -1,0 +1,19 @@
+[project]
+name = "esp12-sender-v2"
+version = "0.1.0"
+description = "Cross-platform metrics sender for ESP12 monitor firmware"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "psutil>=5.9.8",
+  "paho-mqtt>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

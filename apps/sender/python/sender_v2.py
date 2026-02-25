@@ -10,7 +10,6 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import psutil
 from paho.mqtt import client as mqtt
@@ -145,31 +144,74 @@ def read_env(name: str, default: str) -> str:
     return value if value is not None and value != "" else default
 
 
-def create_mqtt_client(client_id: str) -> mqtt.Client:
+def create_mqtt_client(client_id: str) -> tuple[mqtt.Client, str, int]:
     mqtt_host = read_env("MQTT_HOST", "127.0.0.1")
     mqtt_port = int(read_env("MQTT_PORT", "1883"))
     mqtt_user = read_env("MQTT_USER", "")
     mqtt_pass = read_env("MQTT_PASS", "")
 
-    client = mqtt.Client(client_id=client_id, protocol=mqtt.MQTTv311)
+    client_kwargs: dict = {"client_id": client_id, "protocol": mqtt.MQTTv311}
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        client_kwargs["callback_api_version"] = mqtt.CallbackAPIVersion.VERSION2
+
+    client = mqtt.Client(**client_kwargs)
     if mqtt_user:
         client.username_pw_set(mqtt_user, mqtt_pass)
 
-    client.connect(mqtt_host, mqtt_port, keepalive=30)
+    return client, mqtt_host, mqtt_port
+
+
+def connect_mqtt_with_retry(client: mqtt.Client, mqtt_host: str, mqtt_port: int) -> None:
+    attempt = 0
+    while True:
+        try:
+            client.connect(mqtt_host, mqtt_port, keepalive=30)
+            return
+        except OSError as exc:
+            delay_sec = min(30, 2 ** min(attempt, 5))
+            print(
+                f"MQTT connect failed ({mqtt_host}:{mqtt_port}) -> {exc}. "
+                f"Retrying in {delay_sec}s..."
+            )
+            time.sleep(delay_sec)
+            attempt += 1
+
+
+def parse_interval(raw: str) -> float:
+    try:
+        interval = float(raw)
+    except ValueError:
+        return 1.0
+    return max(interval, 0.2)
+
+
+def parse_qos(raw: str) -> int:
+    try:
+        qos = int(raw)
+    except ValueError:
+        return 0
+    return max(0, min(qos, 2))
+
+
+def connect_and_start(client: mqtt.Client, mqtt_host: str, mqtt_port: int) -> None:
+    connect_mqtt_with_retry(client, mqtt_host, mqtt_port)
     client.loop_start()
-    return client
 
 
 def main() -> int:
     hostname = read_env("SENDER_HOSTNAME", socket.gethostname())
-    interval = float(read_env("SEND_INTERVAL_SEC", "1.0"))
-    qos = int(read_env("MQTT_QOS", "0"))
+    interval = parse_interval(read_env("SEND_INTERVAL_SEC", "1.0"))
+    qos = parse_qos(read_env("MQTT_QOS", "0"))
 
     topic = topic_for_host(hostname)
     rate_sampler = RateSampler()
-    client = create_mqtt_client(f"sender-v2-{hostname}")
+    client, mqtt_host, mqtt_port = create_mqtt_client(f"sender-v2-{hostname}")
+    connect_and_start(client, mqtt_host, mqtt_port)
 
-    print(f"Sender v2 started: host={hostname} topic={topic} interval={interval}s")
+    print(
+        f"Sender v2 started: host={hostname} topic={topic} "
+        f"broker={mqtt_host}:{mqtt_port} interval={interval}s"
+    )
 
     # Warm up cpu_percent baseline so first sample is meaningful.
     psutil.cpu_percent(interval=None)
@@ -182,7 +224,7 @@ def main() -> int:
             info = client.publish(topic, payload=encoded, qos=qos, retain=False)
             if info.rc != mqtt.MQTT_ERR_SUCCESS:
                 print(f"publish failed rc={info.rc}")
-            time.sleep(max(interval, 0.2))
+            time.sleep(interval)
     except KeyboardInterrupt:
         print("Sender v2 stopped")
     finally:
