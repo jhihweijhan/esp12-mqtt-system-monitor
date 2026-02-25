@@ -1,19 +1,36 @@
 # ESP12-Blink
 
-這是一個以 **ESP8266/ESP12** 為核心的系統監控顯示專案。  
-主要用途是把電腦端的 CPU / RAM / GPU / 網路 / 磁碟資訊，透過 MQTT 傳給 ESP12，並在小螢幕上即時顯示。
+把電腦的系統資訊（CPU / RAM / GPU / 網路 / 磁碟）透過 MQTT 傳到 ESP12，並在小螢幕即時顯示。
 
-## 這個倉庫放什麼
+![執行畫面](docs/images/runtime-screen.jpeg)
 
-- 韌體（ESP12 顯示端）：`apps/firmware`
-- Sender（電腦端資料發送）：
-  - Python 版：`apps/sender/python`
-  - Go 版：`apps/sender/go`
-- 通訊協議文件：`docs/protocol/metrics-v2.md`
+## 這個專案可以做什麼
 
-## 快速開始
+- 在 ESP12 顯示器上看到主機即時監控數據
+- 支援多台主機（用 hostname 分 topic）
+- 提供 WebUI 設定 MQTT 與顯示參數
+- Sender 支援 Python（推薦）與 Go
 
-### 1) 韌體
+## 圖文快速認識硬體
+
+| 模組 | 圖片 |
+|---|---|
+| 螢幕背面 | ![螢幕背面](docs/images/hardware-display-back.jpeg) |
+| 驅動板 | ![驅動板](docs/images/hardware-driver-board.jpeg) |
+| ESP12 主板 | ![ESP12 主板](docs/images/hardware-esp12-board.jpeg) |
+
+## 你現在想做哪一件事
+
+1. 先看完整安裝教學（推薦第一次）  
+請看：[圖文安裝與使用指南](docs/guide/安裝與使用指南.md)
+2. 我已經接好硬體，只想快速跑起來  
+請看下方「5 分鐘快速開始」
+3. 我只想改 Sender 或韌體  
+請看「開發者命令速查」
+
+## 5 分鐘快速開始
+
+### 1) 編譯並燒錄韌體
 
 ```bash
 cd apps/firmware
@@ -22,7 +39,7 @@ cd apps/firmware
 ~/.platformio/penv/bin/pio device monitor --baud 115200
 ```
 
-### 2) Python Sender（推薦）
+### 2) 啟動 Python Sender（Ubuntu 推薦）
 
 ```bash
 cd apps/sender/python
@@ -37,17 +54,54 @@ chmod +x senderctl.sh
 ./senderctl.sh compose-logs
 ```
 
-### 3) Go Sender
+### 3) 在 ESP WebUI 設定 MQTT
+
+- 開瀏覽器進入 ESP 顯示的 IP（例如 `http://192.168.x.x/monitor`）
+- 設定 broker：`MQTT_HOST` / `MQTT_PORT` / 帳密
+- Topic 使用：`sys/agents/+/metrics/v2`
+
+### 4) 驗證成功
+
+- 螢幕出現 `MQTT OK`
+- 有 CPU / RAM / GPU 數值更新
+- 若 GPU 使用率是 `0%` 但溫度有值，通常代表目前 GPU 空閒
+
+## 開發者命令速查
+
+### 韌體
+
+```bash
+cd apps/firmware
+~/.platformio/penv/bin/pio run
+~/.platformio/penv/bin/pio test -e native
+```
+
+### Python Sender
+
+```bash
+cd apps/sender/python
+uv sync --extra dev
+uv run python -m pytest -q
+```
+
+### Go Sender
 
 ```bash
 cd apps/sender/go
 go test ./...
 go build -o sender_v2 .
-MQTT_HOST=127.0.0.1 MQTT_PORT=1883 MQTT_USER=your_user MQTT_PASS=your_pass ./sender_v2
 ```
 
-## MQTT Topic
+## MQTT 規格
 
-- `sys/agents/<hostname>/metrics/v2`
+- Topic：`sys/agents/<hostname>/metrics/v2`
+- Payload 規格：`docs/protocol/metrics-v2.md`
 
-Payload 規格請看：`docs/protocol/metrics-v2.md`
+## 常見問題
+
+1. ESP 顯示 `MQTT --`  
+先確認 broker 位址/帳密是否正確，再看 Sender 日誌。
+2. 只有 CPU/RAM 正常，GPU 一直是 `0%`  
+先確認 GPU 溫度是否有值；有值通常是空閒狀態，不是讀取失敗。
+3. `quickstart-compose` 啟動失敗  
+請先確認 Docker 已啟動，必要時執行：`./senderctl.sh ensure-docker-boot`。
