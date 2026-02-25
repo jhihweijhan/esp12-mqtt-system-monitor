@@ -65,7 +65,7 @@ const char HTML_MONITOR[] PROGMEM = R"rawliteral(
         <div class="form-group"><label>Server</label><input type="text" id="mqttServer" placeholder="192.168.1.100"></div>
         <div class="row">
           <div class="form-group"><label>Port</label><input type="number" id="mqttPort" value="1883"></div>
-          <div class="form-group"><label>Topic Pattern (legacy)</label><input type="text" id="mqttTopic" value="sys/agents/+/metrics"></div>
+          <div class="form-group"><label>Topic Pattern</label><input type="text" id="mqttTopic" value="sys/agents/+/metrics/v2"></div>
         </div>
         <div class="row">
           <div class="form-group"><label>Username</label><input type="text" id="mqttUser" placeholder="optional"></div>
@@ -122,12 +122,12 @@ const char HTML_MONITOR[] PROGMEM = R"rawliteral(
     }
 
     function topicFromHost(hostname) {
-      return 'sys/agents/' + hostname + '/metrics';
+      return 'sys/agents/' + hostname + '/metrics/v2';
     }
 
     function hostFromTopic(topic) {
       if (!topic) return '';
-      const m = topic.match(/^sys\/agents\/([^\/]+)\/metrics$/);
+      const m = topic.match(/^sys\/agents\/([^\/]+)\/metrics\/v2$/);
       return m ? m[1] : '';
     }
 
@@ -189,12 +189,12 @@ const char HTML_MONITOR[] PROGMEM = R"rawliteral(
     }
 
     function loadConfig() {
-      fetch('/api/config')
+      fetch('/api/v2/config')
         .then(r => r.json())
         .then(cfg => {
           document.getElementById('mqttServer').value = cfg.mqtt?.server || '';
           document.getElementById('mqttPort').value = cfg.mqtt?.port || 1883;
-          document.getElementById('mqttTopic').value = cfg.mqtt?.topic || 'sys/agents/+/metrics';
+          document.getElementById('mqttTopic').value = cfg.mqtt?.topic || 'sys/agents/+/metrics/v2';
           document.getElementById('mqttUser').value = cfg.mqtt?.user || '';
           document.getElementById('mqttPass').value = '';
 
@@ -269,7 +269,7 @@ const char HTML_MONITOR[] PROGMEM = R"rawliteral(
       s.style.color = '#94a3b8';
       s.textContent = retry > 0 ? 'Retrying...' : 'Saving...';
 
-      fetch('/api/config', {
+      fetch('/api/v2/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body
@@ -304,7 +304,7 @@ const char HTML_MONITOR[] PROGMEM = R"rawliteral(
     }
 
     function updateStatus() {
-      fetch('/api/status')
+      fetch('/api/v2/status')
         .then(r => r.json())
         .then(d => {
           const m = document.getElementById('mqttStatus');

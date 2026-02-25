@@ -5,10 +5,10 @@
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 
-#define MONITOR_CONFIG_FILE "/monitor.json"
-#define MAX_DEVICES 4
+#define MONITOR_CONFIG_FILE "/monitor_v2.json"
+#define MAX_DEVICES 8
 #define MAX_FIELDS 10
-#define MAX_SUBSCRIBED_TOPICS 4
+#define MAX_SUBSCRIBED_TOPICS 8
 #define DEFAULT_OFFLINE_TIMEOUT_SEC 20
 #define MIN_OFFLINE_TIMEOUT_SEC 5
 #define MAX_OFFLINE_TIMEOUT_SEC 300
@@ -117,7 +117,7 @@ public:
         config.mqttPort = 1883;
         strcpy(config.mqttUser, "");
         strcpy(config.mqttPass, "");
-        strcpy(config.mqttTopic, "sys/agents/+/metrics");
+        strcpy(config.mqttTopic, "sys/agents/+/metrics/v2");
         config.subscribedTopicCount = 0;
 
         // 設備預設
@@ -168,7 +168,7 @@ public:
         config.mqttPort = doc["mqtt"]["port"] | 1883;
         strlcpy(config.mqttUser, doc["mqtt"]["user"] | "", sizeof(config.mqttUser));
         strlcpy(config.mqttPass, doc["mqtt"]["pass"] | "", sizeof(config.mqttPass));
-        strlcpy(config.mqttTopic, doc["mqtt"]["topic"] | "sys/agents/+/metrics", sizeof(config.mqttTopic));
+        strlcpy(config.mqttTopic, doc["mqtt"]["topic"] | "sys/agents/+/metrics/v2", sizeof(config.mqttTopic));
         config.subscribedTopicCount = 0;
         JsonArray topicsArr = doc["mqtt"]["subscribedTopics"].as<JsonArray>();
         if (!topicsArr.isNull()) {
