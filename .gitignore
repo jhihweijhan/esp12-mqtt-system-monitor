@@ -1,0 +1,15 @@
+.pio
+.worktrees
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+__pycache__/
+*.pyc
+apps/firmware/data/*.json
+apps/sender/python/.docker.env
+apps/sender/go/sender_v2
+apps/firmware/.vscode/
+.serena/
+.beads/daemon-error
+original_firmware.bin

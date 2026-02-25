@@ -1,0 +1,14 @@
+services:
+  esp12-sender:
+    container_name: esp12-sender
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: esp12-sender:latest
+    env_file:
+      - ./.docker.env
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /sys/class/drm:/sys/class/drm:ro
+      - /dev/dri:/dev/dri
